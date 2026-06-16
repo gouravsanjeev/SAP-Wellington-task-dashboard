@@ -319,6 +319,7 @@ textarea{resize:vertical;min-height:88px}
     <div class="sb-divider"></div>
     <span class="sb-label">Actions</span>
     <button class="sb-item" onclick="Admin.openCreate()">&#43;&nbsp;New Task</button>
+    <button class="sb-item" onclick="Admin.show('settings')" id="na-settings">&#9881;&nbsp;Settings</button>
   </nav>
   <main class="main">
     <section id="s-overview">
@@ -376,10 +377,51 @@ textarea{resize:vertical;min-height:88px}
       <div class="pg-hdr"><div class="pg-hdr-left"><h2>Site Lead Actions</h2><p>Tasks to be coordinated and actioned by the site lead.</p></div></div>
       <div class="task-grid" id="slGrid"></div>
     </section>
+
+    <!-- SETTINGS SECTION -->
+    <section id="s-settings" class="hidden">
+      <div class="pg-hdr">
+        <div class="pg-hdr-left"><h2>Settings</h2><p>Configure photo hosting and integrations.</p></div>
+      </div>
+
+      <div class="card" style="max-width:560px;padding:24px 28px;">
+        <h3 style="margin:0 0 6px;font-size:1rem;font-weight:700;">Photo Hosting — ImgBB</h3>
+        <p style="margin:0 0 16px;font-size:.85rem;color:#555;line-height:1.5;">
+          Photos are uploaded to <strong>ImgBB</strong> (free) and served as plain public URLs
+          that display in any browser without authentication.<br>
+          Get your free API key at
+          <a href="https://api.imgbb.com" target="_blank" rel="noopener" style="color:#0070F2;">api.imgbb.com</a>
+          &mdash; sign up, then click <em>Get API key</em>.
+        </p>
+
+        <label style="display:block;font-size:.85rem;font-weight:600;margin-bottom:6px;">ImgBB API Key</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="imgbbKeyInput" type="password"
+            placeholder="Paste your ImgBB API key here"
+            style="flex:1;padding:8px 12px;border:1.5px solid #c8cdd3;border-radius:6px;font-size:.9rem;font-family:inherit;">
+          <button class="btn btn-p" onclick="Admin.saveImgbbKey()" style="white-space:nowrap;">Save Key</button>
+        </div>
+        <div id="imgbbStatus" style="margin-top:10px;font-size:.82rem;"></div>
+
+        <div style="margin-top:20px;padding:12px 16px;background:#E1F4FF;border-radius:8px;font-size:.82rem;line-height:1.6;color:#003a70;">
+          <strong>Steps to get your free API key:</strong><br>
+          1. Go to <a href="https://imgbb.com" target="_blank" style="color:#0070F2;">imgbb.com</a> &rarr; Sign up (takes 1 minute)<br>
+          2. Go to <a href="https://api.imgbb.com" target="_blank" style="color:#0070F2;">api.imgbb.com</a> &rarr; Click <strong>Get API key</strong><br>
+          3. Copy the key and paste it above &rarr; click <strong>Save Key</strong><br>
+          4. Photo uploads will now work for everyone on all devices.
+        </div>
+      </div>
+
+      <div class="card" style="max-width:560px;padding:24px 28px;margin-top:16px;">
+        <h3 style="margin:0 0 6px;font-size:1rem;font-weight:700;">Google Sheets Sync</h3>
+        <p style="margin:0 0 10px;font-size:.85rem;color:#555;">Task data syncs via Google Apps Script. Connection status:</p>
+        <button class="btn" onclick="Admin.testConn()" style="font-size:.85rem;">Test Connection</button>
+        <div id="connStatus" style="margin-top:10px;font-size:.82rem;"></div>
+      </div>
+    </section>
+
   </main>
 </div>
-
-<!-- EXTERNAL LAYOUT -->
 <div id="scrExt" class="app-layout hidden">
   <nav class="sidebar">
     <span class="sb-label">My Work</span>
@@ -1782,6 +1824,21 @@ var SEED_TASKS = [
 //   → Deploy → Manage deployments → copy the  /exec  URL
 var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxIj1Txfr_MsqM7N-HzgrpwcCGxFxUQYcZcZEgkdWr_j7N0hODen5hhDNYo8Pi10zGVBQ/exec';
 
+// ── ImgBB photo hosting ────────────────────────────────────────────────
+// ImgBB is a free image host.  Photos upload here and come back as a
+// plain  https://i.ibb.co/…  URL that loads in any <img> tag from any
+// origin without authentication — permanently solving the cross-origin
+// display problem.
+//
+// Get your free API key in 2 minutes:
+//   1. Go to  https://imgbb.com  → Sign up (free)
+//   2. Go to  https://api.imgbb.com  → click "Get API key"
+//   3. Copy the key and paste it in Admin → Settings inside the dashboard
+//      (it is saved to localStorage so you only do this once per device)
+//
+var IMGBB_KEY = localStorage.getItem('imgbb_key') || '';
+var IMGBB_URL = 'https://api.imgbb.com/1/upload';
+
 // ── STORE ─────────────────────────────────────────────────────────
 var Store = {
   KEY: 'tap_si_v2',
@@ -1968,94 +2025,68 @@ var U={
     r.readAsDataURL(file);
   },
   _uploadToCloud:function(blob,name,k,idx){
-    // No Script URL configured — store as local preview only (no Drive sync)
-    if(!SCRIPT_URL||SCRIPT_URL==='YOUR_APPS_SCRIPT_URL'){
-      var rd=new FileReader();
-      rd.onload=function(e){
-        if(U._d[k]&&U._d[k][idx]){
-          U._d[k][idx].url=e.target.result;
-          U._d[k][idx]._uploading=false;
-          U._render(k);
-        }
-      };
-      rd.readAsDataURL(blob);
+    // ── ImgBB upload (permanent fix for cross-origin photo display) ──
+    // ImgBB returns a plain https://i.ibb.co/… URL that loads in any
+    // <img> tag from any origin.  No proxy, no CORS issues.
+    if(!IMGBB_KEY){
+      toast('Add your ImgBB API key in Admin \u2192 Settings to enable photo uploads.','error');
+      if(U._d[k])U._d[k].splice(idx,1);
+      U._render(k);
       return;
     }
-    // Convert blob → base64, then POST via XHR (more reliable than fetch for Apps Script Web Apps)
     var reader=new FileReader();
     reader.onload=function(ev){
       var b64=ev.target.result.split(',')[1];
-      toast('Uploading photo to Google Drive\u2026','info');
-      U._xhrUpload(b64,name,k,idx,1);
+      toast('Uploading photo\u2026','info');
+      U._imgbbUpload(b64,name,k,idx,1);
     };
     reader.readAsDataURL(blob);
   },
 
-  /* XHR-based upload — retries once on network failure.
-     Uses XMLHttpRequest instead of fetch because Apps Script Web Apps
-     sometimes silently drop fetch POSTs during their internal redirect. */
-  _xhrUpload:function(b64,name,k,idx,attempt){
-    var xhr=new XMLHttpRequest();
-    xhr.open('POST',SCRIPT_URL,true);
-    xhr.setRequestHeader('Content-Type','text/plain;charset=utf-8');
-    xhr.timeout=90000; // 90 s — Drive API can be slow on first call
-    xhr.onload=function(){
-      try{
-        var d=JSON.parse(xhr.responseText);
-        if(d.ok&&d.url){
+  /* POST base64 to ImgBB, retry once on failure. */
+  _imgbbUpload:function(b64,name,k,idx,attempt){
+    var fd=new FormData();
+    fd.append('key',IMGBB_KEY);
+    fd.append('image',b64);
+    fd.append('name',name.replace(/\.[^.]+$/,''));
+    fetch(IMGBB_URL,{method:'POST',body:fd})
+      .then(function(r){
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        return r.json();
+      })
+      .then(function(d){
+        if(d.success&&d.data&&d.data.display_url){
+          var url=d.data.display_url;
           if(U._d[k]&&U._d[k][idx]){
-            U._d[k][idx].url=d.url;
+            U._d[k][idx].url=url;
             U._d[k][idx]._uploading=false;
           }
-          toast('Photo saved to Google Drive.','success');
+          toast('Photo uploaded.','success');
           U._render(k);
         } else {
-          var msg=d.error||'Apps Script returned an error';
-          console.error('[Upload] server error:',msg,'full response:',xhr.responseText);
+          var msg=(d.error&&d.error.message)||JSON.stringify(d.error)||'ImgBB error';
+          console.error('[ImgBB] upload error:',msg);
           if(attempt<2){
-            toast('Upload attempt 1 failed — retrying\u2026','info');
-            setTimeout(function(){U._xhrUpload(b64,name,k,idx,attempt+1);},3000);
+            toast('Upload attempt 1 failed \u2014 retrying\u2026','info');
+            setTimeout(function(){U._imgbbUpload(b64,name,k,idx,2);},3000);
           } else {
             toast('Photo upload failed: '+msg,'error');
             if(U._d[k])U._d[k].splice(idx,1);
             U._render(k);
           }
         }
-      }catch(parseErr){
-        console.error('[Upload] non-JSON response (HTTP '+xhr.status+'):',xhr.responseText.substring(0,200));
+      })
+      .catch(function(err){
+        console.error('[ImgBB] fetch error:',err);
         if(attempt<2){
-          toast('Upload attempt 1 failed — retrying\u2026','info');
-          setTimeout(function(){U._xhrUpload(b64,name,k,idx,attempt+1);},3000);
+          toast('Network error \u2014 retrying upload\u2026','info');
+          setTimeout(function(){U._imgbbUpload(b64,name,k,idx,2);},3000);
         } else {
-          toast('Photo upload failed — check Apps Script is redeployed (Execute as: Me, Anyone).','error');
+          toast('Photo upload failed \u2014 check your internet connection.','error');
           if(U._d[k])U._d[k].splice(idx,1);
           U._render(k);
         }
-      }
-    };
-    xhr.onerror=function(){
-      console.error('[Upload] network error on attempt',attempt);
-      if(attempt<2){
-        toast('Network error — retrying upload\u2026','info');
-        setTimeout(function(){U._xhrUpload(b64,name,k,idx,attempt+1);},3000);
-      } else {
-        toast('Photo upload failed — network error. Check internet connection and Script URL.','error');
-        if(U._d[k])U._d[k].splice(idx,1);
-        U._render(k);
-      }
-    };
-    xhr.ontimeout=function(){
-      console.error('[Upload] timeout on attempt',attempt);
-      if(attempt<2){
-        toast('Upload timed out — retrying\u2026','info');
-        setTimeout(function(){U._xhrUpload(b64,name,k,idx,attempt+1);},3000);
-      } else {
-        toast('Photo upload timed out. Try a smaller image or check your connection.','error');
-        if(U._d[k])U._d[k].splice(idx,1);
-        U._render(k);
-      }
-    };
-    xhr.send(JSON.stringify({action:'uploadImage',name:name,base64:b64,mimeType:'image/jpeg'}));
+      });
   },
   _render:function(k){
     var pid={ct:'ctPrev',comp:'compPrev',cmt:'cmtPhotoPrev',upd:'updPrev'}[k];
@@ -2153,34 +2184,26 @@ var Img={
     el.removeAttribute('data-durl');
 
     if(!url||url==='null'||url==='undefined'){el.style.display='none';return;}
-    if(url.startsWith('data:')){el.src=url;return;}
 
-    var id=_driveId(url);
-    if(!id){el.src=url;return;}   // not a Drive URL — use directly
-
-    // Return from cache immediately
-    if(Img._cache[id]){el.src=Img._cache[id];return;}
-
-    // ── Strategy: try Google CDN directly first ──────────────────────
-    // lh3.googleusercontent.com serves Drive files that are shared as
-    // "Anyone on the internet" (DriveApp.Access.ANYONE) without needing
-    // cookies or a proxy. This works from any host (GitHub Pages, etc.).
-    // If the direct load fails (e.g. file set to ANYONE_WITH_LINK only),
-    // we automatically fall back to the Apps Script proxy.
-    var lh3='https://lh3.googleusercontent.com/d/'+id;
-    el.style.opacity='0.4';
-    el.title='Loading photo\u2026';
-    el.src=lh3;
-    el.onload=function(){
-      el.onload=null;el.onerror=null;
-      el.style.opacity='';el.title='';
-      Img._cache[id]=lh3;   // cache so future renders skip the load attempt
-    };
-    el.onerror=function(){
-      el.onerror=null;el.onload=null;
-      // Direct CDN failed — fall back to Apps Script proxy
+    // base64 preview or ImgBB/public URL — use directly, no proxy needed
+    if(url.startsWith('data:')||url.startsWith('https://i.ibb.co/')||url.startsWith('http')){
+      // Check if it's a Google Drive URL (old photos) — these need the proxy fallback
+      var id=_driveId(url);
+      if(!id){
+        // Non-Drive URL (ImgBB, data:, etc.) — load directly, always works
+        if(Img._cache[url]){el.src=Img._cache[url];return;}
+        el.src=url;
+        el.onload=function(){el.onload=null;el.onerror=null;Img._cache[url]=url;};
+        el.onerror=function(){el.onerror=null;el.onload=null;Img._fail(el,'Could not load photo',url);};
+        return;
+      }
+      // Drive URL — try proxy, fall back to camera icon
+      if(Img._cache[id]){el.src=Img._cache[id];return;}
+      el.style.opacity='0.4';el.title='Loading photo\u2026';
       Img._proxy(id,el);
-    };
+      return;
+    }
+    el.style.display='none';
   },
 
   /* Fetch image bytes through Apps Script proxy, cache the result */
@@ -2348,8 +2371,8 @@ var App={
 };
 
 // ── ADMIN MODULE ──────────────────────────────────────────────────
-var ADMIN_SECTIONS=['overview','tasks','pending','completed','cat-cl','cat-rm','cat-sl'];
-var ADMIN_NAV_IDS={overview:'na-ov',tasks:'na-all',pending:'na-pend',completed:'na-done','cat-cl':'na-cl','cat-rm':'na-rm','cat-sl':'na-sl'};
+var ADMIN_SECTIONS=['overview','tasks','pending','completed','cat-cl','cat-rm','cat-sl','settings'];
+var ADMIN_NAV_IDS={overview:'na-ov',tasks:'na-all',pending:'na-pend',completed:'na-done','cat-cl':'na-cl','cat-rm':'na-rm','cat-sl':'na-sl',settings:'na-settings'};
 
 var _editId=null;
 
@@ -2389,6 +2412,7 @@ var Admin={
         ?filtered.map(function(t){return taskCard(t,'admin')}).join('')
         :emptyState(empties[sec]||'No tasks','',sec==='overview'?'<button class="btn btn-p" onclick="Admin.openCreate()">+ New Task</button>':'');
     }
+    if(sec==='settings') Admin._renderSettings();
   },
   _updateStats:function(tasks){
     document.getElementById('stTotal').textContent=tasks.length;
@@ -2511,6 +2535,45 @@ var Admin={
     Store.update(id,{dueDate:v||null});
     Admin.view(id);
     toast('Due date updated.','success');
+  },
+
+  // ── SETTINGS ─────────────────────────────────────────────────────────
+  _renderSettings:function(){
+    var inp=document.getElementById('imgbbKeyInput');
+    var status=document.getElementById('imgbbStatus');
+    if(!inp)return;
+    inp.value=IMGBB_KEY;
+    if(IMGBB_KEY){
+      status.innerHTML='<span style="color:#276749;">&#10003; ImgBB key is set &mdash; photos will upload to ImgBB.</span>';
+    } else {
+      status.innerHTML='<span style="color:#c05621;">&#9888; No key set &mdash; photos cannot be uploaded until you add a key.</span>';
+    }
+  },
+
+  saveImgbbKey:function(){
+    var val=document.getElementById('imgbbKeyInput').value.trim();
+    if(!val){toast('Please paste your ImgBB API key first.','error');return;}
+    IMGBB_KEY=val;
+    localStorage.setItem('imgbb_key',val);
+    Admin._renderSettings();
+    toast('ImgBB API key saved.','success');
+  },
+
+  testConn:function(){
+    var el=document.getElementById('connStatus');
+    if(el)el.innerHTML='Testing\u2026';
+    if(!SCRIPT_URL||SCRIPT_URL==='YOUR_APPS_SCRIPT_URL'){
+      if(el)el.innerHTML='<span style="color:#c05621;">No Apps Script URL configured.</span>';
+      return;
+    }
+    fetch(SCRIPT_URL+'?action=ping')
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(el)el.innerHTML='<span style="color:#276749;">&#10003; Connected &mdash; '+(d.scriptVersion||'version unknown')+'</span>';
+      })
+      .catch(function(e){
+        if(el)el.innerHTML='<span style="color:#c05621;">Connection failed: '+e.message+'</span>';
+      });
   }
 };
 
