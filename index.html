@@ -213,20 +213,7 @@ textarea{resize:vertical;min-height:88px}
 #lightbox img{max-width:92vw;max-height:90vh;border-radius:var(--r);box-shadow:var(--sh3)}
 .lb-x{position:absolute;top:20px;right:20px;background:rgba(255,255,255,.15);color:#fff;border:none;width:44px;height:44px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
 @media(max-width:768px){.sidebar{display:none}.main{padding:14px}.stats{grid-template-columns:1fr 1fr}.task-grid{grid-template-columns:1fr}.frow{grid-template-columns:1fr}.modal-wide{max-width:100%}}
-
-/* ── SYNC / LOADING ── */
-.spin{width:28px;height:28px;border:3px solid var(--brd);border-top-color:var(--blue);border-radius:50%;animation:_spin .75s linear infinite}
-@keyframes _spin{to{transform:rotate(360deg)}}
-#loadingOverlay{position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;gap:18px}
-#loadingOverlay .lo-title{font-size:15px;font-weight:600;color:var(--txt);font-family:inherit}
-#loadingOverlay .lo-sub{font-size:13px;color:var(--txt2);font-family:inherit}
-#syncStatus{font-size:11px;font-weight:500;transition:color .3s}
-.btn-refresh{background:rgba(255,255,255,.13);color:#fff;border:1px solid rgba(255,255,255,.25);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-family:inherit}
-.btn-refresh:hover{background:rgba(255,255,255,.22)}
-.sync-offline-banner{background:#FFF4E5;border:1px solid #FDDBB4;border-radius:var(--r);padding:8px 14px;font-size:12px;color:#8A4500;display:none;margin-bottom:12px;text-align:center}
-
 </style>
-<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 </head>
 <body>
 <header class="hdr">
@@ -236,9 +223,6 @@ textarea{resize:vertical;min-height:88px}
     <span>Site Inspection Task Dashboard</span>
   </div>
   <div class="hdr-right">
-    <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
-    <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
     <button class="btn-sw" onclick="App.logout()">Switch Role</button>
   </div>
@@ -246,9 +230,6 @@ textarea{resize:vertical;min-height:88px}
 
 <!-- LANDING -->
 <div id="scrLanding" class="landing">
-  <div class="sync-offline-banner" id="offlineBanner">
-    &#9888;&nbsp;<span class="sync-offline-msg">Could not reach Google Sheets &mdash; showing local data. Check your internet connection or verify the Apps Script URL.</span>
-  </div>
   <div class="land-card">
     <div class="land-icon">
       <svg width="38" height="38" viewBox="0 0 38 38" fill="none">
@@ -270,8 +251,8 @@ textarea{resize:vertical;min-height:88px}
       </div>
       <div class="role-card" onclick="App.setRole('external')">
         <div class="ri">&#128736;</div>
-        <h3>Contractor Access</h3>
-        <p>View your assigned tasks, post photo updates, and submit completion evidence</p>
+        <h3>External Party</h3>
+        <p>View assigned tasks, add comments with photos, and submit completion evidence</p>
       </div>
     </div>
   </div>
@@ -281,19 +262,13 @@ textarea{resize:vertical;min-height:88px}
 <div id="scrExtAcc" class="acc-wrap hidden">
   <div class="acc-card">
     <div style="margin-bottom:20px"><button class="btn btn-s btn-sm" onclick="App.logout()">&#8592; Back</button></div>
-    <h2>&#128736; Contractor Access</h2>
-    <p class="sub">Select your company below — the code fills in automatically — then enter your name and tap Access My Tasks.</p>
+    <h2>&#128736; External Party Access</h2>
+    <p class="sub">Enter your name and access code to view your assigned tasks.</p>
     <div class="acc-codes">
       <h4>Access Codes for this Project</h4>
-      <div class="acc-code-row" style="cursor:pointer" onclick="document.getElementById('extCode').value='SUPERCARE';document.getElementById('extName').value='Supercare NZ';document.getElementById('extCode').focus();toast('Supercare NZ selected — tap Access My Tasks.','success')">
-        <span class="name">&#128308; Supercare NZ</span><span class="code">SUPERCARE</span>
-      </div>
-      <div class="acc-code-row" style="cursor:pointer" onclick="document.getElementById('extCode').value='SANJEEV';document.getElementById('extName').value='Sanjeev';document.getElementById('extCode').focus();toast('Sanjeev selected — tap Access My Tasks.','success')">
-        <span class="name">&#128309; Sanjeev</span><span class="code">SANJEEV</span>
-      </div>
-      <div class="acc-code-row" style="cursor:pointer" onclick="document.getElementById('extCode').value='RAPID-ELEC';document.getElementById('extName').value='Rapid Electrical';document.getElementById('extCode').focus();toast('Rapid Electrical selected — tap Access My Tasks.','success')">
-        <span class="name">&#128310; Rapid Electrical</span><span class="code">RAPID-ELEC</span>
-      </div>
+      <div class="acc-code-row"><span class="name">Supercare NZ</span><span class="code" title="Click to fill" onclick="copyCode(this)">SUPERCARE</span></div>
+      <div class="acc-code-row"><span class="name">Sanjeev</span><span class="code" title="Click to fill" onclick="copyCode(this)">SANJEEV</span></div>
+      <div class="acc-code-row"><span class="name">Rapid Electrical</span><span class="code" title="Click to fill" onclick="copyCode(this)">RAPID-ELEC</span></div>
     </div>
     <div class="fg"><label>Your Name / Company <span class="req">*</span></label><input type="text" id="extName" placeholder="e.g. Supercare NZ"/></div>
     <div class="fg"><label>Access Code <span class="req">*</span></label><input type="text" id="extCode" placeholder="e.g. SUPERCARE" onkeydown="if(event.key==='Enter')App.externalLogin()"/></div>
@@ -448,10 +423,10 @@ textarea{resize:vertical;min-height:88px}
       <div class="fg">
         <label id="ctPhotosLabel">Reference Photos <small style="font-weight:400;color:var(--txt3)">&mdash; drag or click to add</small></label>
         <div class="upzone" id="ctZone" ondragover="U.over(event,'ctZone')" ondragleave="U.leave('ctZone')" ondrop="U.drop(event,'ct')">
-          <input type="file" id="ctFiles" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp" multiple onchange="U.handle(event,'ct')"/>
+          <input type="file" id="ctFiles" accept="image/*" multiple onchange="U.handle(event,'ct')"/>
           <div class="uic">&#128247;</div>
           <p>Drag &amp; drop or click to browse photos</p>
-          <span>JPG, JPEG, HEIC, HEIF, PNG, WEBP &mdash; tap or drag to attach</span>
+          <span>JPG, PNG, WEBP &mdash; multiple files allowed</span>
         </div>
         <div class="prev-grid" id="ctPrev"></div>
       </div>
@@ -507,10 +482,10 @@ textarea{resize:vertical;min-height:88px}
       <div class="fg">
         <label>Evidence Photos <span class="req">*</span> <small style="font-weight:400;color:var(--txt3)">&mdash; at least 1 required</small></label>
         <div class="upzone" id="compZone" ondragover="U.over(event,'compZone')" ondragleave="U.leave('compZone')" ondrop="U.drop(event,'comp')">
-          <input type="file" id="compFiles" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp" multiple onchange="U.handle(event,'comp')"/>
+          <input type="file" id="compFiles" accept="image/*" multiple onchange="U.handle(event,'comp')"/>
           <div class="uic">&#128247;</div>
           <p>Upload photos showing the completed work</p>
-          <span>JPG, JPEG, HEIC, HEIF, PNG, WEBP &mdash; tap or drag to attach</span>
+          <span>JPG, PNG, WEBP &mdash; multiple files allowed</span>
         </div>
         <div class="prev-grid" id="compPrev"></div>
       </div>
@@ -547,10 +522,10 @@ textarea{resize:vertical;min-height:88px}
       <div class="fg">
         <label>Attach Photos <small style="font-weight:400;color:var(--txt3)">&mdash; optional, supports multiple</small></label>
         <div class="upzone" id="updZone" ondragover="U.over(event,'updZone')" ondragleave="U.leave('updZone')" ondrop="U.drop(event,'upd')">
-          <input type="file" id="updFiles" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp" multiple onchange="U.handle(event,'upd')"/>
+          <input type="file" id="updFiles" accept="image/*" multiple onchange="U.handle(event,'upd')"/>
           <div class="uic">&#128247;</div>
           <p>Drag &amp; drop photos here or click to browse</p>
-          <span>JPG, JPEG, HEIC, HEIF, PNG, WEBP &mdash; tap or drag to attach</span>
+          <span>JPG, PNG, WEBP &mdash; multiple files supported</span>
         </div>
         <div class="prev-grid" id="updPrev"></div>
       </div>
@@ -575,6 +550,7 @@ textarea{resize:vertical;min-height:88px}
 'use strict';
 var SEED_TASKS = [
   {
+    "id": "SI-001",
     "xId": 3,
     "title": "FOH Reception - 2 snake pot plants at reception. Thoughts?",
     "description": "These were donated to users by SAP. We will check if someone would like to take home or we will initiate to remove from site",
@@ -582,19 +558,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T003"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-002",
     "xId": 5,
     "title": "Reception - ornamental vase on reception desk - nothing in it. Thoughts?",
     "description": "We will initiate to store this vase in storeroom",
@@ -602,19 +576,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T005"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-003",
     "xId": 6,
     "title": "Reception - VMS in corner not operational. When does this go live? There are boxes on floor behind the VMS, appear to contain lanyards and items for VMS.",
     "description": "We will initiate labeling and storing the boxes in the storeroom",
@@ -622,19 +594,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T006"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-004",
     "xId": 7,
     "title": "Customer breakout area - drop, cover, hold flyer sticky tapped to customer breakout bench - looks tacky. Should this be framed and placed on a wall? What's best practice?",
     "description": "We will initiate the framing",
@@ -642,19 +612,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T007"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-005",
     "xId": 8,
     "title": "Customer breakout area - silk flower arrangement here as well. Therefore total of 2.",
     "description": "We will remove as required",
@@ -662,19 +630,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T008"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-006",
     "xId": 12,
     "title": "FOH kitchen glass fronted fridge needs cleaning inside. When did you have this last cleaned?",
     "description": "Fridge cleaning is end of month activity - We will ensure with cleaner to provide photos after & before after each clean",
@@ -682,19 +648,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T012"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-007",
     "xId": 13,
     "title": "XX plant is oddly placed on FOH kitchen bench. Thoughts?",
     "description": "We will initiate the relocation of plant properly",
@@ -702,19 +666,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T013"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-008",
     "xId": 14,
     "title": "FOH coat cupboard - some of the grab bags are thrown in here.",
     "description": "Identify the location in office for proper placement of emergency bags",
@@ -722,19 +684,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T014"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-009",
     "xId": 15,
     "title": "Dirty marks on the glass partitioning (FOH) needs to be spot cleaned.",
     "description": "We will ask the cleaner to ensure daily cleaning practice",
@@ -742,19 +702,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T015"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-010",
     "xId": 16,
     "title": "Operable wall is dirty, can this be cleaned?",
     "description": "We will ask the cleaner to find out the option of stain removal/steam cleaning",
@@ -762,19 +720,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T016"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-011",
     "xId": 17,
     "title": "Ceiling vents are very dirty throughout the tenancy. Can these be cleaned?",
     "description": "We will ask the cleaner to find out the option of high dusting",
@@ -782,39 +738,35 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T017"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-012",
     "xId": 20,
     "title": "I removed the meeting room check in labels as not relevant anymore.",
-    "description": "",
+    "description": "I removed the meeting room check in labels as not relevant anymore.",
     "category": "Cleaning Activities",
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "completed",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T020"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-013",
     "xId": 22,
     "title": "FOH kitchen cupboards inside could do with a clean.",
     "description": "We will instruct cleaner to do regular cleaning and share photos",
@@ -822,19 +774,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T022"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-014",
     "xId": 24,
     "title": "FOH customer breakout drawers under the high island bench needs to be cleared out, cleaned and organised.",
     "description": "We will instruct cleaner to do regular cleaning and share photos",
@@ -842,19 +792,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T024"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-015",
     "xId": 29,
     "title": "Setu chairs - appears to be a few spares around the office, more than what is on the floor plan. I think I counted 39 Setu chairs in the tenancy.",
     "description": "We will instruct cleaner to do regular cleaning and share photos",
@@ -862,19 +810,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T029"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-016",
     "xId": 33,
     "title": "Server room - when was it last cleaned? How often is it supposed to get cleaned?",
     "description": "The server room is cleaned on an as-needed basis depending on IT staff availability and cleaning requirements. Since January, reduced on-site attendance from the new IT representative has made scheduling more difficult, as the cleaner typically arrives when the IT rep is finishing.\nWe are trying to adjust the cleaner’s start time by 15 minutes early so cleaning can occur while the IT rep is present; it is subject to the IT rep’s availability.\nWe recently cleaned the server room last month, on the 27th May 2026.",
@@ -882,19 +828,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "completed",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T033"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-017",
     "xId": 43,
     "title": "New store room - 2 x Resene paint containers. To be used for future paint touch ups",
     "description": "We will secure this in store room properly",
@@ -902,39 +846,35 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T043"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-018",
     "xId": 44,
     "title": "New store room - to be organised",
-    "description": "",
+    "description": "New store room - to be organised",
     "category": "Cleaning Activities",
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T044"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-019",
     "xId": 48,
     "title": "BOH utility - old calendar planner, if not required, to be disposed.",
     "description": "We will initiate to dispose off",
@@ -942,19 +882,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T048"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-020",
     "xId": 49,
     "title": "BOH utility - TIMG blue paper box, approx 1/6 full. Dusty on top and cleaner can dust all horizontal surfaces.",
     "description": "This bin was recently exchanged in April",
@@ -962,19 +900,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T049"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-021",
     "xId": 50,
     "title": "BOH utility - 2 x MDFs. Can be cleaned between the two MDFs.",
     "description": "We will initiate the cleaning through cleaners",
@@ -982,19 +918,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T050"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-022",
     "xId": 51,
     "title": "Cleaning cupboard/coat cupboard - there is a cleaning scope on inside of cupboard door, is this the current scope? Yes/No.",
     "description": "Yes, the scope is current - We will initiate to display it properly in lamination or folder",
@@ -1002,19 +936,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T051"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-023",
     "xId": 54,
     "title": "BOH staff fridge - when was this last cleaned? How often is the fridge cleaned?",
     "description": "Fridge cleaning is end of month activity - We will ensure with cleaner to provide photos after & before after each clean",
@@ -1022,19 +954,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T054"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-024",
     "xId": 55,
     "title": "Staff kitchen - microwave buttons x3 are very worn. Microwaves were clean on the inside. Staff kitchen - overhead cupboard door (LHS) needs the hinges adjusted so door closes properly.",
     "description": "We will ensure the cleaning and handyman to adjust the hinges",
@@ -1042,19 +972,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T055"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-025",
     "xId": 58,
     "title": "Nespresso boxes located under the FOH high island bench. Brendon places the used capsules in the box. Is this not on the cleaner's scope to do?",
     "description": "Cleaners empty the coffee capsules in Nespresso recycling bin during daily cleaning, if machine is asking to empty the tray in between",
@@ -1062,19 +990,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T058"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-026",
     "xId": 60,
     "title": "BOH utility drawers and compactus shelving needs to be reviewed, cleared, and organised.",
     "description": "We will inspect and arrange accordingly",
@@ -1082,19 +1008,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T060"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-027",
     "xId": 61,
     "title": "BOH utility drawers and compactus shelving needs to be reviewed, cleared, and organised.",
     "description": "Sanjeev will coordinate with cleaners and arrange cleaning and organisation of shelvings",
@@ -1102,19 +1026,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "low",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T061"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-028",
     "xId": 1,
     "title": "FOH kitchen - bubble in the rubber flooring.",
     "description": "We will arrange a handyman to fix",
@@ -1122,19 +1044,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T001"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-029",
     "xId": 2,
     "title": "FOH kitchen - light bulb out in one of the copper pendant lights. Check the black pendant light as well.",
     "description": "We will arrange an electrician to fix",
@@ -1142,39 +1062,35 @@ var SEED_TASKS = [
     "assigneeName": "Rapid Electrical",
     "assigneeCode": "RAPID-ELEC",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T002"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-030",
     "xId": 9,
     "title": "Pool table in break out area - I was informed that the staff bought this and it is not an SAP asset.",
-    "description": "",
+    "description": "Pool table in break out area - I was informed that the staff bought this and it is not an SAP asset.",
     "category": "Repair & Maintenance - Handyman Works",
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T009"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-031",
     "xId": 10,
     "title": "The square white table that is positioned close to the pool table (with 2 seats) has the table top loose, this needs to be fixed.",
     "description": "We will arrange a handyman to fix",
@@ -1182,19 +1098,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T010"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-032",
     "xId": 11,
     "title": "Require pool table cues and accessory holder. Does the pool table have a pull out drawer to place some of the small accessories into?",
     "description": "We will arrange to purchase and placement of cues holder/stand",
@@ -1202,19 +1116,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T011"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-033",
     "xId": 18,
     "title": "Boardroom - old thermal electronic whiteboard. Can this be disposed and can one of the spare whiteboards that is located in another meeting room (on the floor) be mounted into this room?",
     "description": "We will initiate the disposal and arrange a handyman to mount the spare white board",
@@ -1222,19 +1134,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T018"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-034",
     "xId": 19,
     "title": "Boardroom joinery door cupboard is off. Do we know why? Can it be fixed and put back on?",
     "description": "IT has purposely removed the door for ventilation purposes. We will arrange a tech to install a luver for adequate ventilation",
@@ -1242,19 +1152,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T019"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-035",
     "xId": 25,
     "title": "FOH recycling bin has protective plastic around the handle where it attaches to the drawer front.",
     "description": "We will arrange a handyman to fix asap",
@@ -1262,19 +1170,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T025"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-036",
     "xId": 26,
     "title": "FOH microwave trim kit needs to be secured better, it pops off too easily.",
     "description": "We will arrange a handyman to fix asap",
@@ -1282,19 +1188,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T026"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-037",
     "xId": 27,
     "title": "FOH microwave is on a slant and has one piece of timber under it. Needs a second piece of timber to level the microwave.",
     "description": "We will arrange a handyman to fix asap",
@@ -1302,19 +1206,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T027"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-038",
     "xId": 28,
     "title": "MR 18.4 Brooklyn has an old thermal electronic whiteboard placed against the wall. Is this needed or can it be disposed?",
     "description": "We will initiate the disposal",
@@ -1322,19 +1224,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T028"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-039",
     "xId": 42,
     "title": "Reception desk - metal edge trim is coming away from the joinery desk on LHS.",
     "description": "We will arrange a handyman to fix asap",
@@ -1342,19 +1242,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T042"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-040",
     "xId": 56,
     "title": "Staff kitchen overhead cupboard hinges need adjustment",
     "description": "We will arrange a handyman to fix asap",
@@ -1362,19 +1260,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T056"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-041",
     "xId": 57,
     "title": "BOH OH - 2 ceiling tiles have not been made good after GPS have moved cameras.",
     "description": "We will arrange a handyman to fix asap",
@@ -1382,19 +1278,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T057"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-042",
     "xId": 30,
     "title": "MR 18.3 (old virtual studio room), appears that IT moved the IT AV screens from one wall to another and left behind many blanking plates instead of patching and painting the wall. Odd hook located on the wall.",
     "description": "We will arrange a handyman to fix asap",
@@ -1402,19 +1296,17 @@ var SEED_TASKS = [
     "assigneeName": "Supercare NZ",
     "assigneeCode": "SUPERCARE",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "medium",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T030"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-043",
     "xId": 21,
     "title": "MU requested a new coffee machine. To be added to 2027 capex planning.",
     "description": "Sanjeev will include this in 2027 wish list",
@@ -1422,19 +1314,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": null,
     "priority": "high",
     "status": "inprogress",
-    "dueDate": null,
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T021"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-044",
     "xId": 23,
     "title": "No sign of SDS within the tenancy.",
     "description": "Sanjeev will coordinate with the cleaning team and arrange the SDS on site as desired locations",
@@ -1442,19 +1332,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T023"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-045",
     "xId": 31,
     "title": "ANZAC room requires a few magnetic dots for the magnetic whiteboard which will allow Brendon to place paper on the whiteboard. Sanjeev to purchase.",
     "description": "Sanjeev will purchase through WINC/NXP in stationery order",
@@ -1462,39 +1350,35 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T031"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-046",
     "xId": 32,
     "title": "2 Aeron chairs with manufacturer date of 1-11-2010 need to be relocated from AKL02 to WLG03.",
-    "description": "",
+    "description": "2 Aeron chairs with manufacturer date of 1-11-2010 need to be relocated from AKL02 to WLG03.",
     "category": "Site Lead to Coordinate and Action",
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "completed",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T032"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-047",
     "xId": 34,
     "title": "Server room - SIMS need to collect items for disposal.",
     "description": "Sanjeev will coordinate with IT to arrange the disposal pick-up asap",
@@ -1502,19 +1386,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T034"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-048",
     "xId": 36,
     "title": "Server room - rail in corner - does this need to be installed? Edwin checking. Follow up.",
     "description": "Sanjeev will coordinate with IT to fix this item",
@@ -1522,19 +1404,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T036"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-049",
     "xId": 37,
     "title": "Server room - empty blue/green box on floor of bottom of rack, is this to be disposed? If yes, dispose of it.",
     "description": "Sanjeev will coordinate with IT and find out the solution",
@@ -1542,19 +1422,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T037"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-050",
     "xId": 38,
     "title": "Server room - there is equipment just sitting on top of rack 1. Is this correct position for this equipment? Shown to Edwin and Jason. To be followed up.",
     "description": "Sanjeev will coordinate with IT and find out the solution",
@@ -1562,19 +1440,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T038"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-051",
     "xId": 39,
     "title": "Server room - rack one has no lid/top. Rack two and three have lids/tops.",
     "description": "Sanjeev will coordinate with IT and find out the solution",
@@ -1582,19 +1458,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T039"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-052",
     "xId": 40,
     "title": "Server room - rack two has a cardboard box on top shelf. Should this be disposed of?",
     "description": "Sanjeev will coordinate with IT and find out the solution",
@@ -1602,19 +1476,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T040"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-053",
     "xId": 41,
     "title": "Reception desk - obsolete telephone is on desk, if not operational this can be disposed of via SIMS.",
     "description": "Sanjeev will coordinate with IT and find out the solution",
@@ -1622,19 +1494,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T041"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-054",
     "xId": 45,
     "title": "Scales appear to be in the store room for weighing waste. Is this the case Sanjeev?",
     "description": "Sanjeev will impliment a process with cleaner to weight and report the waste ondaily basis",
@@ -1642,19 +1512,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T045"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-055",
     "xId": 46,
     "title": "Food in emergency bog bag is due to expire in July 2026.",
     "description": "Sanjeev is coordinating with contractor and provide you an update soon",
@@ -1662,19 +1530,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T046"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-056",
     "xId": 47,
     "title": "BOH utility - used toner cartridges to be collected.",
     "description": "Sanjeev will coordinate with IT and find out the solution",
@@ -1682,19 +1548,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T047"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-057",
     "xId": 53,
     "title": "Fruit - ample fruit and quality was good.",
     "description": "We are providing the instruction to cleaners to send us the photo of fruits on Thursday and Friday to understand the consumption trend and action accordingly",
@@ -1702,19 +1566,17 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T053"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-058",
     "xId": 59,
     "title": "Off brand GRF signage is in place.",
     "description": "Sanjeev will deliver the latest brand signages and ensure the placement",
@@ -1722,39 +1584,35 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T059"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-059",
     "xId": 4,
     "title": "QR table kept at reception. MU uses it for events and placing out name tags. OK and updated furniture plan accordingly.",
-    "description": "",
+    "description": "QR table kept at reception. MU uses it for events and placing out name tags. OK and updated furniture plan accordingly.",
     "category": "Site Lead to Coordinate and Action",
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T004"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   },
   {
+    "id": "SI-060",
     "xId": 52,
     "title": "BOH coat cupboard - on the base of this cupboard is an old monitor for disposal. SIMS to collect",
     "description": "Sanjeev will coordinate with IT to arrange the disposal pick-up asap",
@@ -1762,288 +1620,39 @@ var SEED_TASKS = [
     "assigneeName": "Sanjeev",
     "assigneeCode": "SANJEEV",
     "assigneeEmail": "",
+    "dueDate": "2026-06-30",
     "priority": "high",
     "status": "inprogress",
-    "dueDate": "2026-06-30",
-    "completionComment": null,
     "refPhotos": [],
     "evidencePhotos": [],
-    "comments": [],
-    "photos": [],
-    "createdAt": "2026-06-09T00:00:00.000Z",
-    "completedAt": null,
-    "id": "T052"
+    "completionComment": null,
+    "createdAt": "2026-06-07T00:00:00.000Z",
+    "completedAt": null
   }
 ];
 
-// ── CONFIG — paste your Apps Script Web App URL here ─────────────────
-// Get this URL from:
-//   Google Sheet → Extensions → Apps Script
-//   → Deploy → Manage deployments → copy the  /exec  URL
-var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxIj1Txfr_MsqM7N-HzgrpwcCGxFxUQYcZcZEgkdWr_j7N0hODen5hhDNYo8Pi10zGVBQ/exec';
-
 // ── STORE ─────────────────────────────────────────────────────────
-var Store = {
-  KEY: 'tap_si_v3',
-
-  // ─── READ (synchronous, from localStorage cache) ──────────────────
-  get: function () {
-    try { return JSON.parse(localStorage.getItem(this.KEY) || 'null') || []; }
-    catch (e) { return []; }
-  },
-
-  // ─── WRITE (localStorage first, then async push to Sheets) ────────
-  save: function (tasks) {
-    localStorage.setItem(this.KEY, JSON.stringify(tasks));
-    this._syncUp(tasks);
-  },
-  add:    function (t)       { var a = this.get(); a.unshift(t); this.save(a); },
-  update: function (id, upd) { this.save(this.get().map(function (t) { return t.id === id ? Object.assign({}, t, upd) : t; })); },
-  del:    function (id)      { this.save(this.get().filter(function (t) { return t.id !== id; })); },
-  byId:   function (id)      { return this.get().find(function (t) { return t.id === id; }) || null; },
-
-  // ─── SEED from embedded data (first open only) ────────────────────
-  _seed: function () {
-    if (!localStorage.getItem(this.KEY)) {
-      var tasks = SEED_TASKS.map(function (t) {
-        return Object.assign({ comments: [], refPhotos: [], evidencePhotos: [], photos: [] }, t);
-      });
-      localStorage.setItem(this.KEY, JSON.stringify(tasks));
-    }
-  },
-
-  // ─── PULL latest data from Sheets ─────────────────────────────────
-  syncDown: function (cb) {
-    var self = this;
-
-    // No URL configured yet — use embedded seed data
-    if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
-      self._seed();
-      self._setStatus('ok');
-      if (cb) cb(false);
-      return;
-    }
-
-    self._setStatus('syncing');
-
-    fetch(SCRIPT_URL + '?action=get', { cache: 'no-store' })
-      .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function (res) {
-        if (res.ok && res.data) {
-          try {
-            var remote = JSON.parse(res.data);
-            if (Array.isArray(remote) && remote.length) {
-              localStorage.setItem(self.KEY, res.data);
-            }
-          } catch (e) { console.error('[Store] parse error:', e); }
-        }
-        self._seed();          // no-op if data already exists
-        self._setStatus('ok');
-        if (cb) cb(true);
-      })
-      .catch(function (err) {
-        console.error('[Store] syncDown failed:', err);
-        self._seed();
-        self._setStatus('error');
-        if (cb) cb(false);
-      });
-  },
-
-  // ─── PUSH localStorage to Sheets (fire & forget) ──────────────────
-  _syncUp: function (tasks) {
-    if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') return;
-    var payload = JSON.stringify({ action: 'save', data: JSON.stringify(tasks) });
-    fetch(SCRIPT_URL, {
-      method:  'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body:    payload
-    })
-    .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP '+r.status); })
-    .then(function(d){ if(!d.ok) console.warn('[Store] save returned:', d.error); })
-    .catch(function(e){ console.error('[Store] _syncUp failed:', e); });
-  },
-
-  // ─── MANUAL REFRESH ───────────────────────────────────────────────
-  manualRefresh: function () {
-    var loMsg = document.getElementById('loMsg');
-    if (loMsg) loMsg.textContent = 'Refreshing data\u2026';
-    document.getElementById('loadingOverlay').style.display = 'flex';
-    Store.syncDown(function () {
-      document.getElementById('loadingOverlay').style.display = 'none';
-      if (typeof Admin !== 'undefined' && Admin._updateStats) {
-        Admin._updateStats(Store.get());
-      }
-      toast('Data refreshed from Google Sheets.', 'success');
-    });
-  },
-
-  // ─── SCRIPT CONNECTION TEST ───────────────────────────────
-  testPing: function (cb) {
-    if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
-      if (cb) cb(false, 'No Script URL configured.');
-      return;
-    }
-    fetch(SCRIPT_URL + '?action=ping', { method: 'GET' })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (cb) cb(d.ok === true, d.message || (d.ok ? 'Ping OK' : (d.error || 'Unexpected response')));
-      })
-      .catch(function (err) {
-        if (cb) cb(false, err.message || String(err));
-      });
-  },
-
-  // ─── STATUS INDICATOR in header ───────────────────────────────────
-  _setStatus: function (state) {
-    var el = document.getElementById('syncStatus');
-    if (!el) return;
-    var MAP = {
-      syncing: { html: '&#8635;&nbsp;Syncing\u2026', color: '#0070F2' },
-      ok:      { html: '&#10003;&nbsp;Synced',       color: '#1a7f3f' },
-      error:   { html: '&#9888;&nbsp;Sync error &mdash; using local data', color: '#c0392b' }
-    };
-    var s = MAP[state] || MAP.ok;
-    el.innerHTML = s.html;
-    el.style.color = s.color;
-  }
+var Store={
+  KEY:'tap_si_v2',
+  get:function(){try{return JSON.parse(localStorage.getItem(this.KEY)||'null')||[]}catch(e){return[]}},
+  save:function(t){localStorage.setItem(this.KEY,JSON.stringify(t))},
+  add:function(t){var a=this.get();a.unshift(t);this.save(a)},
+  update:function(id,upd){this.save(this.get().map(function(t){return t.id===id?Object.assign({},t,upd):t}))},
+  del:function(id){this.save(this.get().filter(function(t){return t.id!==id}))},
+  byId:function(id){return this.get().find(function(t){return t.id===id})},
+  seed:function(){if(!localStorage.getItem(this.KEY)){var tasks=SEED_TASKS.map(function(t){return Object.assign({comments:[]},t)});this.save(tasks)}}
 };
+Store.seed();
+
 // ── UPLOAD MODULE ─────────────────────────────────────────────────
 var U={
   _d:{ct:[],comp:[],cmt:[],upd:[]},
   _editExisting:[],
   handle:function(e,k){Array.from(e.target.files).forEach(function(f){U._read(f,k)})},
-  drop:function(e,k){e.preventDefault();var zid={ct:'ctZone',comp:'compZone',upd:'updZone'}[k];if(zid)document.getElementById(zid).classList.remove('drag-over');Array.from(e.dataTransfer.files).filter(function(f){var lo=f.name.toLowerCase();return f.type.startsWith('image/')||lo.endsWith('.heic')||lo.endsWith('.heif');}).forEach(function(f){U._read(f,k)})},
+  drop:function(e,k){e.preventDefault();var zid={ct:'ctZone',comp:'compZone',upd:'updZone'}[k];if(zid)document.getElementById(zid).classList.remove('drag-over');Array.from(e.dataTransfer.files).filter(function(f){return f.type.startsWith('image/')}).forEach(function(f){U._read(f,k)})},
   over:function(e,zid){e.preventDefault();document.getElementById(zid).classList.add('drag-over')},
   leave:function(zid){document.getElementById(zid).classList.remove('drag-over')},
-  _read:function(file,k){
-    var n=file.name;var lo=n.toLowerCase();
-    var isHeic=lo.endsWith('.heic')||lo.endsWith('.heif')||file.type==='image/heic'||file.type==='image/heif';
-    if(file.size>30*1024*1024){toast('File too large (max 30 MB): '+n,'error');return;}
-    if(isHeic&&typeof heic2any!=='undefined'){
-      toast('Converting HEIC — please wait...','info');
-      heic2any({blob:file,toType:'image/jpeg',quality:0.80}).then(function(blob){
-        var safe=n.replace(/\.heic$/i,'.jpg').replace(/\.heif$/i,'.jpg');
-        U._compress(new File([blob],safe,{type:'image/jpeg'}),k);
-      }).catch(function(err){
-        toast('HEIC conversion failed for '+n+'. Try saving as JPEG first.','error');
-      });
-    } else {
-      U._compress(file,k);
-    }
-  },
-  _compress:function(file,k){
-    var r=new FileReader();
-    r.onload=function(ev){
-      var img=new Image();
-      img.onload=function(){
-        var MAX=1000;var w=img.width,h=img.height;
-        if(w>MAX||h>MAX){if(w>=h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;}}
-        var cv=document.createElement('canvas');cv.width=w;cv.height=h;
-        cv.getContext('2d').drawImage(img,0,0,w,h);
-        var preview=cv.toDataURL('image/jpeg',0.80);
-        var idx=U._d[k].length;
-        U._d[k].push({name:file.name,url:null,_preview:preview,_uploading:true});
-        U._render(k);
-        cv.toBlob(function(blob){U._uploadToCloud(blob,file.name,k,idx);},'image/jpeg',0.80);
-      };
-      img.onerror=function(){toast('Could not read image: '+file.name,'error');};
-      img.src=ev.target.result;
-    };
-    r.readAsDataURL(file);
-  },
-  _uploadToCloud:function(blob,name,k,idx){
-    // No Script URL configured — store as local preview only (no Drive sync)
-    if(!SCRIPT_URL||SCRIPT_URL==='YOUR_APPS_SCRIPT_URL'){
-      var rd=new FileReader();
-      rd.onload=function(e){
-        if(U._d[k]&&U._d[k][idx]){
-          U._d[k][idx].url=e.target.result;
-          U._d[k][idx]._uploading=false;
-          U._render(k);
-        }
-      };
-      rd.readAsDataURL(blob);
-      return;
-    }
-    // Convert blob → base64, then POST via XHR (more reliable than fetch for Apps Script Web Apps)
-    var reader=new FileReader();
-    reader.onload=function(ev){
-      var b64=ev.target.result.split(',')[1];
-      toast('Uploading photo to Google Drive\u2026','info');
-      U._xhrUpload(b64,name,k,idx,1);
-    };
-    reader.readAsDataURL(blob);
-  },
-
-  /* XHR-based upload — retries once on network failure.
-     Uses XMLHttpRequest instead of fetch because Apps Script Web Apps
-     sometimes silently drop fetch POSTs during their internal redirect. */
-  _xhrUpload:function(b64,name,k,idx,attempt){
-    var xhr=new XMLHttpRequest();
-    xhr.open('POST',SCRIPT_URL,true);
-    xhr.setRequestHeader('Content-Type','text/plain;charset=utf-8');
-    xhr.timeout=90000; // 90 s — Drive API can be slow on first call
-    xhr.onload=function(){
-      try{
-        var d=JSON.parse(xhr.responseText);
-        if(d.ok&&d.url){
-          if(U._d[k]&&U._d[k][idx]){
-            U._d[k][idx].url=d.url;
-            U._d[k][idx]._uploading=false;
-          }
-          toast('Photo saved to Google Drive.','success');
-          U._render(k);
-        } else {
-          var msg=d.error||'Apps Script returned an error';
-          console.error('[Upload] server error:',msg,'full response:',xhr.responseText);
-          if(attempt<2){
-            toast('Upload attempt 1 failed — retrying\u2026','info');
-            setTimeout(function(){U._xhrUpload(b64,name,k,idx,attempt+1);},3000);
-          } else {
-            toast('Photo upload failed: '+msg,'error');
-            if(U._d[k])U._d[k].splice(idx,1);
-            U._render(k);
-          }
-        }
-      }catch(parseErr){
-        console.error('[Upload] non-JSON response (HTTP '+xhr.status+'):',xhr.responseText.substring(0,200));
-        if(attempt<2){
-          toast('Upload attempt 1 failed — retrying\u2026','info');
-          setTimeout(function(){U._xhrUpload(b64,name,k,idx,attempt+1);},3000);
-        } else {
-          toast('Photo upload failed — check Apps Script is redeployed (Execute as: Me, Anyone).','error');
-          if(U._d[k])U._d[k].splice(idx,1);
-          U._render(k);
-        }
-      }
-    };
-    xhr.onerror=function(){
-      console.error('[Upload] network error on attempt',attempt);
-      if(attempt<2){
-        toast('Network error — retrying upload\u2026','info');
-        setTimeout(function(){U._xhrUpload(b64,name,k,idx,attempt+1);},3000);
-      } else {
-        toast('Photo upload failed — network error. Check internet connection and Script URL.','error');
-        if(U._d[k])U._d[k].splice(idx,1);
-        U._render(k);
-      }
-    };
-    xhr.ontimeout=function(){
-      console.error('[Upload] timeout on attempt',attempt);
-      if(attempt<2){
-        toast('Upload timed out — retrying\u2026','info');
-        setTimeout(function(){U._xhrUpload(b64,name,k,idx,attempt+1);},3000);
-      } else {
-        toast('Photo upload timed out. Try a smaller image or check your connection.','error');
-        if(U._d[k])U._d[k].splice(idx,1);
-        U._render(k);
-      }
-    };
-    xhr.send(JSON.stringify({action:'uploadImage',name:name,base64:b64,mimeType:'image/jpeg'}));
-  },
+  _read:function(file,k){var r=new FileReader();r.onload=function(ev){U._d[k].push({name:file.name,data:ev.target.result});U._render(k)};r.readAsDataURL(file)},
   _render:function(k){
     var pid={ct:'ctPrev',comp:'compPrev',cmt:'cmtPhotoPrev',upd:'updPrev'}[k];
     var c=document.getElementById(pid);if(!c)return;
@@ -2051,29 +1660,12 @@ var U={
     U._d[k].forEach(function(img,i){
       var d=document.createElement('div');
       d.className=k==='cmt'?'cmt-photo-prev-item':'prev-item';
-      // Show _preview base64 immediately when available (e.g. just after upload).
-      // Only use data-durl proxy when _preview is absent (e.g. after page reload).
-      var _pre=img._preview||img.data||'';
-      var _drv=(!_pre&&img.url)?fixDriveUrl(img.url):null;
-      var _iattr=_drv?('data-durl="'+_drv+'"'):('src="'+_pre+'"');
-      var _iopac=img._uploading?' style="opacity:0.5" title="Uploading\u2026"':'';
-      d.innerHTML='<img '+_iattr+_iopac+' alt="preview" onclick="LB.open(this.src)"/>'+'<button class="rm" onclick="U.rm(\''+k+'\','+i+')">&#10005;</button>';
+      d.innerHTML='<img src="'+img.data+'" alt="preview" onclick="LB.open(this.src)"/><button class="rm" onclick="U.rm(\''+k+'\','+i+')">&#10005;</button>';
       c.appendChild(d);
     });
   },
   rm:function(k,i){this._d[k].splice(i,1);this._render(k)},
-  isUploading:function(k){
-    // Returns true if any photo in slot k is still uploading to Drive.
-    return (this._d[k]||[]).some(function(p){return p._uploading;});
-  },
-  get:function(k){
-    // Strip internal-only fields before handing data to task-save logic.
-    // _preview is a large base64 string that must NOT go into the Sheet.
-    // Also filter out any photos whose Drive upload did not complete (url is null).
-    return this._d[k].filter(function(p){return p.url;}).map(function(p){
-      return {name:p.name,url:p.url};
-    });
-  },
+  get:function(k){return this._d[k].slice()},
   clear:function(k){
     this._d[k]=[];
     var pid={ct:'ctPrev',comp:'compPrev',cmt:'cmtPhotoPrev'}[k];
@@ -2087,7 +1679,7 @@ var U={
     c.innerHTML='';
     photos.forEach(function(p,i){
       var d=document.createElement('div');d.className='prev-item';
-      d.innerHTML='<img data-durl="'+(p.url||p.data||'')+'" alt="existing" onclick="LB.open(this.src)"/><button class="rm" onclick="'+onRemove+'('+i+')">&#10005;</button>';
+      d.innerHTML='<img src="'+p.data+'" alt="existing" onclick="LB.open(this.src)"/><button class="rm" onclick="'+onRemove+'('+i+')">&#10005;</button>';
       c.appendChild(d);
     });
   }
@@ -2107,127 +1699,6 @@ var LB={
 function toast(msg,type){var t=document.getElementById('toast');t.textContent=msg;t.className='show '+(type||'');clearTimeout(t._t);t._t=setTimeout(function(){t.className=''},3200)}
 
 // ── HELPERS ───────────────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════════
-// Drive image loading — proxy approach
-// ───────────────────────────────────────────────────────────────────
-// drive.google.com URLs (thumbnail, uc?export=view, lh3) all require
-// Google session cookies and fail cross-origin from netlify.app due
-// to third-party cookie blocking in modern browsers.
-//
-// Solution: fetch every Drive image through the Apps Script endpoint
-// (?action=getImage&id=FILE_ID). The script runs as the owner, has
-// full Drive access regardless of cookies, and returns the image as a
-// base64 data URL inside JSON — no cross-origin image loading at all.
-// Results are cached in memory so each photo is only fetched once.
-// ═══════════════════════════════════════════════════════════════════
-
-function _driveId(url){
-  if(!url)return null;
-  var m=url.match(/[?&]id=([A-Za-z0-9_-]{20,})/)||url.match(/\/d\/([A-Za-z0-9_-]{20,})/);
-  return m?m[1]:null;
-}
-// Keep fixDriveUrl for backward-compat callers — returns url unchanged
-// (actual loading is now handled by Img.loadAll via MutationObserver)
-function fixDriveUrl(url){ return url||''; }
-
-var Img={
-  _cache:{},  // fileId → base64 data URL
-
-  /* Called automatically by MutationObserver for every img[data-durl] */
-  _loadOne:function(el){
-    var url=el.getAttribute('data-durl');
-    if(!url){return;}
-    el.removeAttribute('data-durl');
-
-    if(!url||url==='null'||url==='undefined'){el.style.display='none';return;}
-    if(url.startsWith('data:')){el.src=url;return;}
-
-    var id=_driveId(url);
-    if(!id){el.src=url;return;}   // not a Drive URL — use directly
-
-    if(Img._cache[id]){el.src=Img._cache[id];return;}
-
-    Img._proxy(id,el);
-  },
-
-  /* Fetch image bytes through Apps Script proxy, cache the result */
-  _proxy:function(id,el){
-    // Build Drive viewer URL so _fail can offer a direct link even when proxy unavailable
-    var driveLink='https://drive.google.com/file/d/'+id+'/view';
-    if(!SCRIPT_URL||SCRIPT_URL==='YOUR_APPS_SCRIPT_URL'){
-      Img._fail(el,'Script URL not configured',driveLink);return;
-    }
-    el.style.opacity='0.4';
-    el.title='Loading photo…';
-    fetch(SCRIPT_URL+'?action=getImage&id='+encodeURIComponent(id))
-      .then(function(r){
-        if(!r.ok)throw new Error('HTTP '+r.status);
-        return r.json();
-      })
-      .then(function(d){
-        if(d.ok&&d.dataUrl){
-          Img._cache[id]=d.dataUrl;
-          el.src=d.dataUrl;
-          el.style.opacity='';
-          el.title='';
-        }else if(d.error==='Unknown action: getImage'){
-          Img._fail(el,'Apps Script needs redeploying with Code_v14',driveLink);
-        }else{
-          Img._fail(el,d.error||'Drive error',driveLink);
-        }
-      })
-      .catch(function(err){
-        Img._fail(el,err.message||String(err),driveLink);
-      });
-  },
-
-  /* Show a visible tappable placeholder that opens the photo in Google Drive.
-     This means photos are ALWAYS accessible even before Code_v14 is deployed. */
-  _fail:function(el,reason,driveLink){
-    // Camera-icon SVG placeholder — clearly visible, not an invisible pixel
-    var svg='<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90">'
-      +'<rect width="120" height="90" rx="8" fill="#E1F4FF" stroke="#4CB1FF" stroke-width="1.5"/>'
-      +'<circle cx="60" cy="40" r="14" fill="none" stroke="#0070F2" stroke-width="2.5"/>'
-      +'<circle cx="60" cy="40" r="7" fill="#0070F2"/>'
-      +'<rect x="38" y="26" width="44" height="32" rx="4" fill="none" stroke="#0070F2" stroke-width="2"/>'
-      +'<rect x="50" y="21" width="20" height="8" rx="3" fill="#0070F2"/>'
-      +'<text x="60" y="76" text-anchor="middle" font-size="11" fill="#0070F2" '
-      +'font-family="Arial,sans-serif" font-weight="bold">Tap to view in Drive</text>'
-      +'</svg>';
-    el.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
-    el.style.opacity='1';
-    el.style.cursor=driveLink?'pointer':'default';
-    el.title=driveLink
-      ?'Photo is saved in Google Drive — click to open it\n(Preview requires Apps Script Code_v14 to be deployed)'
-      :'Photo unavailable: '+reason;
-    if(driveLink){
-      el.addEventListener('click',function(e){
-        e.stopPropagation();
-        window.open(driveLink,'_blank');
-      },{once:true});
-    }
-  }
-};
-
-/* Auto-load any img[data-durl] added to the DOM */
-(function(){
-  function scanImgs(root){
-    var list=root.querySelectorAll?root.querySelectorAll('img[data-durl]'):[];
-    Array.prototype.forEach.call(list,function(img){Img._loadOne(img);});
-  }
-  var obs=new MutationObserver(function(muts){
-    muts.forEach(function(m){
-      m.addedNodes.forEach(function(n){
-        if(n.nodeType!==1)return;
-        if(n.tagName==='IMG'&&n.hasAttribute('data-durl'))Img._loadOne(n);
-        else scanImgs(n);
-      });
-    });
-  });
-  document.addEventListener('DOMContentLoaded',function(){
-    obs.observe(document.body,{childList:true,subtree:true});
-  });
-})();
 function genId(){return'T'+Date.now().toString(36).toUpperCase()+Math.random().toString(36).substr(2,4).toUpperCase()}
 function fmtDate(d){if(!d)return'\u2014';try{var x=new Date(d+'T00:00:00');return x.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}catch(e){return d}}
 function fmtTs(ts){try{var d=new Date(ts);return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}catch(e){return''}}
@@ -2246,7 +1717,7 @@ function taskCard(t,role){
   var cmtCount=(t.comments||[]).length;
   var catStr=t.category||'';
   var catIc=catStr.indexOf('Clean')>=0?'&#129529; ':catStr.indexOf('Repair')>=0?'&#128295; ':catStr.indexOf('Site')>=0?'&#128101; ':'';
-  var imgHtml=imgs.length?'<img data-durl="'+(imgs[0].url||imgs[0].data||'')+'" alt="task"/>'+(imgs.length>1?'<span class="img-cnt">&#128247; '+imgs.length+'</span>':''):'<div class="no-img">'+catIc+'<span>No photo</span></div>';
+  var imgHtml=imgs.length?'<img src="'+imgs[0].data+'" alt="task"/>'+(imgs.length>1?'<span class="img-cnt">&#128247; '+imgs.length+'</span>':''):'<div class="no-img">'+catIc+'<span>No photo</span></div>';
   var clickFn=role==='admin'?'Admin.view(\''+t.id+'\')':'External.view(\''+t.id+'\')';
   var brd=isOverdue(t)?' style="border-color:#FFB8B8"':'';
   return'<div class="task-card" onclick="'+clickFn+'"'+brd+'>'
@@ -2281,11 +1752,10 @@ var App={
       _currentUser={role:'admin',name:'Task Manager',code:''};
       App._screen('scrAdmin');
       document.getElementById('roleBadge').textContent='Task Manager';
-      var _tsb=document.getElementById('btnTestScript');if(_tsb)_tsb.style.display='';
       Admin.init();
     }else{
       App._screen('scrExtAcc');
-      document.getElementById('roleBadge').textContent='Contractor';
+      document.getElementById('roleBadge').textContent='External Party';
     }
   },
   externalLogin:function(){
@@ -2308,9 +1778,6 @@ var App={
   _screen:function(id){
     ['scrLanding','scrExtAcc','scrAdmin','scrExt'].forEach(function(s){document.getElementById(s).classList.add('hidden')});
     document.getElementById(id).classList.remove('hidden');
-  },
-  testScriptConnection:function(){
-    M.open('mDiagPhotos');
   }
 };
 
@@ -2451,7 +1918,6 @@ var Admin={
       asgnCode=document.getElementById('ctAsgnCode').value.trim().toUpperCase();
     }else{var parts=asgnVal.split('|');asgnName=parts[0];asgnCode=parts[1]}
     if(!title||!desc||!asgnName||!asgnCode){toast('Please fill in all required fields.','error');return}
-    if(U.isUploading('ct')){toast('Please wait — photo upload is still in progress.','error');return}
     var newPhotos=U.get('ct');
     var allPhotos=U._editExisting.concat(newPhotos);
     var pri=cat==='Cleaning Activities'?'low':cat==='Repair & Maintenance - Handyman Works'?'medium':'high';
@@ -2499,8 +1965,8 @@ var Comments={
       var isMgr=c.role==='admin';
       var avCls=isMgr?'mgr':'ext';
       var bubCls=isMgr?'cmt-bubble mgr-bub':'cmt-bubble';
-      var roleLbl=isMgr?'<span class="cmt-role mgr">Task Manager</span>':'<span class="cmt-role ext">Contractor</span>';
-      var photos=(c.photos||[]).map(function(p){return'<div class="cmt-photo" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+(p.url||p.data||'')+"' alt='' data-durl='"+(p.url||p.data||'')+"'/></div>"}).join('');
+      var roleLbl=isMgr?'<span class="cmt-role mgr">Task Manager</span>':'<span class="cmt-role ext">External Party</span>';
+      var photos=(c.photos||[]).map(function(p){return'<div class="cmt-photo" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+p.data+'" alt=""/></div>'}).join('');
       return'<div class="cmt-item">'
         +'<div class="cmt-av '+avCls+'">'+initials(c.author)+'</div>'
         +'<div class="'+bubCls+'">'
@@ -2517,9 +1983,9 @@ var Comments={
 function buildDetailBody(t,viewRole,taskId){
   var refImgs=(t.refPhotos||[]).map(function(p,i){
     var rmBtn=viewRole==='admin'?' <button class="ph-rm" onclick="Admin.removeRefPhoto(\''+taskId+'\','+i+')">&#10005;</button>':'';
-    return'<div class="ph-item" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+(p.url||p.data||'')+"' alt='ref' data-durl='"+(p.url||p.data||'')+"'/>"+rmBtn+'</div>';
+    return'<div class="ph-item" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+p.data+'" alt="ref"/>'+rmBtn+'</div>';
   }).join('');
-  var evImgs=(t.evidencePhotos||[]).map(function(p){return'<div class="ph-item" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+(p.url||p.data||'')+"' alt='ev' data-durl='"+(p.url||p.data||'')+"'/></div>"}).join('');
+  var evImgs=(t.evidencePhotos||[]).map(function(p){return'<div class="ph-item" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+p.data+'" alt="ev"/></div>'}).join('');
   var crDate=t.createdAt?new Date(t.createdAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'';
   var cDate=t.completedAt?new Date(t.completedAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'';
 
@@ -2583,7 +2049,7 @@ function buildDetailBody(t,viewRole,taskId){
     +'<div class="'+inputAreaCls+'">'
     +'<textarea id="cmtText" placeholder="'+cmtPlaceholder+'"></textarea>'
     +'<div class="cmt-input-row">'
-    +'<label class="cmt-attach-btn">&#128247; Attach Photos<input type="file" id="cmtPhotoInp" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp" multiple onchange="U.handle(event,\'cmt\')"/></label>'
+    +'<label class="cmt-attach-btn">&#128247; Attach Photos<input type="file" id="cmtPhotoInp" accept="image/*" multiple onchange="U.handle(event,\'cmt\')"/></label>'
     +'<div class="cmt-photo-prev" id="cmtPhotoPrev"></div>'
     +'<button class="btn btn-p btn-sm" onclick="Cmt.submit(\''+taskId+'\',\''+viewRole+'\')">&#10148; Post</button>'
     +'</div></div></div>';
@@ -2594,7 +2060,6 @@ function buildDetailBody(t,viewRole,taskId){
 var Cmt={
   submit:function(taskId,viewRole){
     var text=document.getElementById('cmtText').value;
-    if(U.isUploading('cmt')){toast('Please wait — photo upload is still in progress.','error');return}
     var photos=U.get('cmt');
     var author=_currentUser.name||'Unknown';
     var ok=Comments.add(taskId,text,author,viewRole,photos);
@@ -2699,11 +2164,12 @@ var External={
     var comment=document.getElementById('compComment').value.trim();
     var photos=U.get('comp');
     if(!comment){toast('Please provide a completion comment.','error');return}
+    if(!photos.length){toast('Please upload at least one evidence photo.','error');return}
     Store.update(_activeTaskId,{status:'completed',completionComment:comment,evidencePhotos:photos,completedAt:new Date().toISOString()});
     U.clear('comp');
     M.close('mComplete');
-    toast('Completion submitted! Syncing to Google Sheets…','success');
-    Store.syncDown(function(){ External._render('tasks'); });
+    toast('Completion submitted successfully!','success');
+    External._render('tasks');
   }
 };
 
@@ -2723,40 +2189,19 @@ External.openUpdate=function(id){
 
 External.submitUpdate=function(){
   var text=document.getElementById('updComment').value.trim();
-  if(U.isUploading('upd')){toast('Please wait — photo upload is still in progress.','error');return}
   var photos=U.get('upd');
   if(!text&&!photos.length){toast('Please write an update or attach at least one photo.','error');return}
-  var author=_currentUser.name||'Contractor';
+  var author=_currentUser.name||'External Party';
   var ok=Comments.add(_activeTaskId,text,author,'external',photos);
   if(!ok)return;
   U.clear('upd');
   document.getElementById('updComment').value='';
   M.close('mExtUpdate');
-  toast('Update posted successfully! Syncing to Google Sheets…','success');
-  Store.syncDown(function(){ External._render('tasks'); });
+  toast('Update posted successfully!','success');
+  External._render('tasks');
 };
 
 // ── KEYBOARD SHORTCUTS ────────────────────────────────────────────
-// ── STARTUP: load from Sheets (or local cache) then hide loading overlay ──
-(function () {
-  Store._seed();
-  Store.syncDown(function () {
-    document.getElementById('loadingOverlay').style.display = 'none';
-  });
-  // Auto-refresh every 90 seconds so contractors always see the latest tasks
-  setInterval(function () {
-    Store.syncDown(function (ok) {
-      var role = typeof _currentUser !== 'undefined' && _currentUser.role;
-      if (role === 'external' && typeof External !== 'undefined') {
-        External._render('tasks');
-        External._render('done');
-      } else if (role === 'admin' && typeof Admin !== 'undefined' && Admin._updateStats) {
-        Admin._updateStats(Store.get());
-      }
-    });
-  }, 90000);
-})();
-
 document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){
     ['mCreate','mDetail','mExtDetail','mComplete','mExtUpdate'].forEach(function(id){document.getElementById(id).classList.add('hidden')});
@@ -2764,199 +2209,6 @@ document.addEventListener('keydown',function(e){
     document.getElementById('lightbox').classList.add('hidden');
   }
 });
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  PHOTO UPLOAD DIAGNOSTICS
-// ═══════════════════════════════════════════════════════════════════
-var Diag = {
-  // A minimal 1×1 pixel white JPEG encoded as base64
-  // (generated offline — no canvas needed for the test itself)
-  _TINY_B64: '/9j/4AAQSkZJRgABAQEASABIAAD/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AJQAB/9k=',
-
-  _row: function(id, label) {
-    var el = document.createElement('div');
-    el.id = 'diag-' + id;
-    el.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:6px;background:var(--bg2);font-size:13px';
-    el.innerHTML = '<span id="diag-icon-' + id + '" style="font-size:18px;min-width:22px">&#9679;</span>' +
-      '<div><strong>' + label + '</strong><div id="diag-msg-' + id + '" style="color:var(--txt2);margin-top:2px;font-size:12px">Waiting…</div></div>';
-    return el;
-  },
-
-  _set: function(id, icon, color, msg) {
-    var ic = document.getElementById('diag-icon-' + id);
-    var ms = document.getElementById('diag-msg-' + id);
-    var row = document.getElementById('diag-' + id);
-    if (ic) ic.textContent = icon;
-    if (ms) ms.textContent = msg;
-    if (row) row.style.background = color;
-  },
-
-  run: function() {
-    var btn = document.getElementById('btnRunDiag');
-    if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
-    var results = document.getElementById('diagResults');
-    var advice = document.getElementById('diagAdvice');
-    results.innerHTML = '';
-    advice.style.display = 'none';
-
-    var rows = [
-      ['url',    'Script URL configured'],
-      ['get',    'Script reachable (GET ping)'],
-      ['drive',  'Google Drive access (ping)'],
-      ['upload', 'Test image upload (1×1 JPEG)']
-    ];
-    rows.forEach(function(r) { results.appendChild(Diag._row(r[0], r[1])); });
-
-    // Test 1: URL configured?
-    setTimeout(function() {
-      if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
-        Diag._set('url', '❌', '#FFF0F0', 'SCRIPT_URL is not set. Open the HTML file and set SCRIPT_URL at the top of the script block.');
-        Diag._advise('url_missing');
-        if (btn) { btn.disabled = false; btn.textContent = '▶ Run All Tests'; }
-        return;
-      }
-      Diag._set('url', '✅', '#F0FFF4', SCRIPT_URL.substring(0, 60) + '…');
-
-      // Test 2: GET ping
-      Diag._set('get', '⏳', '#FFFBE6', 'Connecting…');
-      fetch(SCRIPT_URL + '?action=ping', { method: 'GET' })
-        .then(function(r) {
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          return r.json();
-        })
-        .then(function(d) {
-          if (d.ok) {
-            Diag._set('get', '✅', '#F0FFF4', 'Connected — ' + (d.message || 'ping OK') + '  [' + (d.scriptVersion || 'unknown version') + ']');
-            Diag._set('drive', '✅', '#F0FFF4', d.message || 'Drive folder accessible');
-            Diag._testUpload(btn);
-          } else {
-            Diag._set('get', '✅', '#F0FFF4', 'Script responded (older version without ping support)');
-            Diag._set('drive', '⚠️', '#FFFBE6', 'Cannot confirm Drive access — upgrade to Code_v12.gs to check');
-            Diag._testUpload(btn);
-          }
-        })
-        .catch(function(err) {
-          var msg = err.message || String(err);
-          Diag._set('get', '❌', '#FFF0F0', 'Failed: ' + msg);
-          Diag._set('drive', '⏩', '#F4F4F4', 'Skipped — script unreachable');
-          Diag._set('upload', '⏩', '#F4F4F4', 'Skipped — script unreachable');
-          Diag._advise('get_fail', msg);
-          if (btn) { btn.disabled = false; btn.textContent = '▶ Run All Tests'; }
-        });
-    }, 200);
-  },
-
-  _testUpload: function(btn) {
-    Diag._set('upload', '⏳', '#FFFBE6', 'Uploading 1×1 test image to Google Drive…');
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', SCRIPT_URL, true);
-    xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
-    xhr.timeout = 45000;
-    xhr.onload = function() {
-      if (btn) { btn.disabled = false; btn.textContent = '▶ Run All Tests'; }
-      try {
-        var d = JSON.parse(xhr.responseText);
-        if (d.ok && d.url) {
-          Diag._set('upload', '✅', '#F0FFF4', 'Upload succeeded. Drive URL: ' + d.url.substring(0, 60) + '…');
-          Diag._advise('all_ok');
-        } else {
-          Diag._set('upload', '❌', '#FFF0F0', 'Script error: ' + (d.error || 'unknown'));
-          Diag._advise('upload_script_err', d.error || '');
-        }
-      } catch(e) {
-        var preview = xhr.responseText.substring(0, 120).replace(/</g,'&lt;');
-        Diag._set('upload', '❌', '#FFF0F0', 'Non-JSON response (HTTP ' + xhr.status + '): ' + preview);
-        Diag._advise('upload_html', xhr.status);
-      }
-    };
-    xhr.onerror = function() {
-      if (btn) { btn.disabled = false; btn.textContent = '▶ Run All Tests'; }
-      Diag._set('upload', '❌', '#FFF0F0', 'Network error — could not reach Apps Script');
-      Diag._advise('get_fail', 'network error');
-    };
-    xhr.ontimeout = function() {
-      if (btn) { btn.disabled = false; btn.textContent = '▶ Run All Tests'; }
-      Diag._set('upload', '⚠️', '#FFF8E6', 'Timed out after 45s. Apps Script may be slow to start. Try again in a minute.');
-      Diag._advise('timeout');
-    };
-    xhr.send(JSON.stringify({ action: 'uploadImage', name: 'diag_test.jpg', base64: Diag._TINY_B64, mimeType: 'image/jpeg' }));
-  },
-
-  _advise: function(code, detail) {
-    var el = document.getElementById('diagAdvice');
-    if (!el) return;
-    var MAP = {
-      all_ok:
-        '<strong style="color:#276749">All tests passed.</strong> Photo upload is working correctly. ' +
-        'If real photos still fail, the image file may be corrupt or very large.',
-      url_missing:
-        '<strong style="color:#c53030">Action required:</strong> The SCRIPT_URL constant in the HTML is not set. ' +
-        'Open task-dashboard_v14.html in a text editor, find <code>var SCRIPT_URL = \'YOUR_APPS_SCRIPT_URL\'</code> ' +
-        'and replace it with your Web App /exec URL.',
-      get_fail:
-        '<strong style="color:#c53030">Action required:</strong> The Apps Script cannot be reached. ' +
-        'Steps: (1) Open your Google Sheet → Extensions → Apps Script. ' +
-        '(2) Verify the script is saved. ' +
-        '(3) Click Deploy → Manage deployments → pencil icon → New version → Deploy. ' +
-        '(4) Confirm “Execute as: Me” and “Who has access: Anyone”. ' +
-        'Error detail: ' + (detail || ''),
-      upload_script_err:
-        '<strong style="color:#c53030">Action required:</strong> The Apps Script received the upload but Drive returned an error. ' +
-        'This almost always means the script has not been authorized to access Google Drive. ' +
-        '<br><br>Fix: In Apps Script editor, run the <code>runSetup()</code> function manually (select it from the function dropdown at the top and click Run ▶). ' +
-        'This will trigger the Google Drive permission dialog. Click Allow. ' +
-        'Then redeploy (Deploy → Manage deployments → New version). ' +
-        'Error: ' + (detail || ''),
-      upload_html:
-        '<strong style="color:#c53030">Action required:</strong> The Apps Script returned an HTML page instead of JSON. ' +
-        'This means the Web App is redirecting to a sign-in or authorization page. ' +
-        '<br><br>Fix: (1) In Apps Script, run <code>runSetup()</code> to authorize Drive. ' +
-        '(2) Deploy → Manage deployments → pencil → New version → Deploy. ' +
-        '(3) Confirm “Who has access: Anyone” (not “Anyone with Google account”). ' +
-        'HTTP status was: ' + (detail || ''),
-      timeout:
-        '<strong style="color:#92400e">Warning:</strong> The request timed out. Apps Script can take 10–30 seconds on the first call after a period of inactivity. ' +
-        'Wait 60 seconds and run the test again. If it keeps timing out, check the Apps Script Executions log for errors.'
-    };
-    el.style.display = 'block';
-    el.style.cssText += ';background:#EFF6FF;border:1px solid #BFDBFE;border-radius:6px;padding:12px 14px;font-size:13px;line-height:1.6;margin-top:14px;display:block';
-    el.innerHTML = MAP[code] || ('<strong>Unknown state: ' + code + '</strong>. Detail: ' + (detail || 'none'));
-  }
-};
 </script>
-
-<!-- LOADING OVERLAY -->
-<div id="loadingOverlay">
-  <svg width="56" height="27" viewBox="0 0 56 27" fill="none">
-    <rect width="56" height="27" rx="3" fill="#0070F2"/>
-    <text x="5" y="21" font-family="Arial" font-weight="900" font-size="19" fill="white">SAP</text>
-  </svg>
-  <div class="lo-title">Site Inspection Task Dashboard</div>
-  <div class="spin"></div>
-  <div class="lo-sub" id="loMsg">Loading task data&#8230;</div>
-</div>
-
-<!-- ── PHOTO DIAGNOSTIC MODAL ─────────────────────────────── -->
-<div id="mDiagPhotos" class="modal-ov hidden">
-  <div class="modal" style="max-width:520px;width:94%">
-    <div class="modal-hdr" style="background:#0070F2">
-      <h3 style="color:#fff">Photo Upload Diagnostics</h3>
-      <button class="btn-ic" style="color:#fff" onclick="M.close('mDiagPhotos')">&#10005;</button>
-    </div>
-    <div style="padding:18px 20px 20px">
-      <p style="margin:0 0 14px;font-size:13px;color:var(--txt2)">
-        This runs three tests to identify exactly why photo uploads may be failing.
-        Each test takes a few seconds.
-      </p>
-      <div id="diagResults" style="display:flex;flex-direction:column;gap:10px"></div>
-      <div id="diagAdvice" style="margin-top:14px;padding:12px 14px;border-radius:6px;font-size:13px;display:none"></div>
-      <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn btn-s" id="btnRunDiag" onclick="Diag.run()">&#9654; Run All Tests</button>
-        <button class="btn btn-s" style="background:var(--bg2)" onclick="M.close('mDiagPhotos')">Close</button>
-      </div>
-    </div>
-  </div>
-</div>
 </body>
 </html>
