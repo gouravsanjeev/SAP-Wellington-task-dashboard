@@ -1780,7 +1780,7 @@ var SEED_TASKS = [
 // Get this URL from:
 //   Google Sheet → Extensions → Apps Script
 //   → Deploy → Manage deployments → copy the  /exec  URL
-var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyKTi4kNHnuI_9Jj7vCp8q5OWiX-tLHo4n9NC5kdjWJ3qvAZObAou8V-Yt67PfNwW_K/exec';
+var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxIj1Txfr_MsqM7N-HzgrpwcCGxFxUQYcZcZEgkdWr_j7N0hODen5hhDNYo8Pi10zGVBQ/exec';
 
 // ── STORE ─────────────────────────────────────────────────────────
 var Store = {
@@ -2152,8 +2152,10 @@ var Img={
 
   /* Fetch image bytes through Apps Script proxy, cache the result */
   _proxy:function(id,el){
+    // Build Drive viewer URL so _fail can offer a direct link even when proxy unavailable
+    var driveLink='https://drive.google.com/file/d/'+id+'/view';
     if(!SCRIPT_URL||SCRIPT_URL==='YOUR_APPS_SCRIPT_URL'){
-      Img._fail(el,'Script URL not configured');return;
+      Img._fail(el,'Script URL not configured',driveLink);return;
     }
     el.style.opacity='0.4';
     el.title='Loading photo…';
@@ -2169,23 +2171,41 @@ var Img={
           el.style.opacity='';
           el.title='';
         }else if(d.error==='Unknown action: getImage'){
-          // Old Apps Script without proxy — tell user to redeploy
-          Img._fail(el,'Update Apps Script to Code_v14.gs and redeploy');
+          Img._fail(el,'Apps Script needs redeploying with Code_v14',driveLink);
         }else{
-          Img._fail(el,d.error||'Drive error');
+          Img._fail(el,d.error||'Drive error',driveLink);
         }
       })
       .catch(function(err){
-        Img._fail(el,err.message||String(err));
+        Img._fail(el,err.message||String(err),driveLink);
       });
   },
 
-  /* Show a placeholder and tooltip on failure */
-  _fail:function(el,reason){
-    el.style.opacity='0.15';
-    el.title='Photo in Google Drive — preview unavailable: '+reason;
-    // 1x1 grey placeholder GIF - no quote characters in the data URL
-    el.src='data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==';
+  /* Show a visible tappable placeholder that opens the photo in Google Drive.
+     This means photos are ALWAYS accessible even before Code_v14 is deployed. */
+  _fail:function(el,reason,driveLink){
+    // Camera-icon SVG placeholder — clearly visible, not an invisible pixel
+    var svg='<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90">'
+      +'<rect width="120" height="90" rx="8" fill="#E1F4FF" stroke="#4CB1FF" stroke-width="1.5"/>'
+      +'<circle cx="60" cy="40" r="14" fill="none" stroke="#0070F2" stroke-width="2.5"/>'
+      +'<circle cx="60" cy="40" r="7" fill="#0070F2"/>'
+      +'<rect x="38" y="26" width="44" height="32" rx="4" fill="none" stroke="#0070F2" stroke-width="2"/>'
+      +'<rect x="50" y="21" width="20" height="8" rx="3" fill="#0070F2"/>'
+      +'<text x="60" y="76" text-anchor="middle" font-size="11" fill="#0070F2" '
+      +'font-family="Arial,sans-serif" font-weight="bold">Tap to view in Drive</text>'
+      +'</svg>';
+    el.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+    el.style.opacity='1';
+    el.style.cursor=driveLink?'pointer':'default';
+    el.title=driveLink
+      ?'Photo is saved in Google Drive — click to open it\n(Preview requires Apps Script Code_v14 to be deployed)'
+      :'Photo unavailable: '+reason;
+    if(driveLink){
+      el.addEventListener('click',function(e){
+        e.stopPropagation();
+        window.open(driveLink,'_blank');
+      },{once:true});
+    }
   }
 };
 
