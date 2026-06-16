@@ -1852,6 +1852,11 @@ var Store = {
   // ─── WRITE (localStorage first, then async push to Sheets) ────────
   save: function (tasks) {
     localStorage.setItem(this.KEY, JSON.stringify(tasks));
+    // Mark local data as dirty (unconfirmed by Sheet).
+    // syncDown will NOT overwrite localStorage while this flag is set,
+    // preventing a race condition where a page refresh fetches stale
+    // Sheet data before the async _syncUp has finished.
+    localStorage.setItem(this.KEY + '_dirty', Date.now().toString());
     this._syncUp(tasks);
   },
   add:    function (t)       { var a = this.get(); a.unshift(t); this.save(a); },
@@ -1893,11 +1898,27 @@ var Store = {
           try {
             var remote = JSON.parse(res.data);
             if (Array.isArray(remote) && remote.length) {
-              // Sheet has data — load it into local cache
-              localStorage.setItem(self.KEY, res.data);
+
+              // ── Dirty-flag guard ─────────────────────────────────────
+              // If local data has been saved but not yet confirmed by the
+              // Sheet (i.e. _syncUp is still in-flight or just completed),
+              // do NOT overwrite localStorage with potentially stale Sheet
+              // data. Instead, re-push local data to the Sheet.
+              // The flag expires after 5 minutes to prevent it getting stuck.
+              var dirtyTs  = parseInt(localStorage.getItem(self.KEY + '_dirty') || '0');
+              var isDirty  = dirtyTs > 0 && (Date.now() - dirtyTs) < 5 * 60 * 1000;
+
+              if (isDirty) {
+                // Local has unconfirmed changes — push them, keep local data
+                console.log('[Store] syncDown: dirty flag set — re-pushing local data to Sheet.');
+                self._syncUp(self.get());
+              } else {
+                // Safe to accept Sheet data
+                localStorage.setItem(self.KEY, res.data);
+              }
+
             } else {
               // Sheet is empty — seed local first, then push everything up
-              // This auto-migrates all existing local data (tasks + comments) to the Sheet
               self._seed();
               var local = self.get();
               if (local.length) {
@@ -1925,6 +1946,11 @@ var Store = {
   // ─── PUSH localStorage to Sheets (fire & forget) ──────────────────
   _syncUp: function (tasks) {
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') return;
+    var self = this;
+    // Capture the dirty timestamp at the moment we start this upload.
+    // After success, we only clear the dirty flag if no newer save has
+    // happened since (i.e. the flag hasn't been refreshed by another save).
+    var dirtyAtStart = localStorage.getItem(self.KEY + '_dirty');
     var payload = JSON.stringify({ action: 'save', data: JSON.stringify(tasks) });
     fetch(SCRIPT_URL, {
       method:  'POST',
@@ -1932,7 +1958,18 @@ var Store = {
       body:    payload
     })
     .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP '+r.status); })
-    .then(function(d){ if(!d.ok) console.warn('[Store] save returned:', d.error); })
+    .then(function(d){
+      if(d.ok){
+        // Clear the dirty flag only if no newer local save has happened
+        // since we started this upload (prevents clearing a flag from a
+        // more recent save that hasn't been pushed yet).
+        if(localStorage.getItem(self.KEY + '_dirty') === dirtyAtStart){
+          localStorage.removeItem(self.KEY + '_dirty');
+        }
+      } else {
+        console.warn('[Store] save returned:', d.error);
+      }
+    })
     .catch(function(e){ console.error('[Store] _syncUp failed:', e); });
   },
 
