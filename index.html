@@ -2158,9 +2158,29 @@ var Img={
     var id=_driveId(url);
     if(!id){el.src=url;return;}   // not a Drive URL — use directly
 
+    // Return from cache immediately
     if(Img._cache[id]){el.src=Img._cache[id];return;}
 
-    Img._proxy(id,el);
+    // ── Strategy: try Google CDN directly first ──────────────────────
+    // lh3.googleusercontent.com serves Drive files that are shared as
+    // "Anyone on the internet" (DriveApp.Access.ANYONE) without needing
+    // cookies or a proxy. This works from any host (GitHub Pages, etc.).
+    // If the direct load fails (e.g. file set to ANYONE_WITH_LINK only),
+    // we automatically fall back to the Apps Script proxy.
+    var lh3='https://lh3.googleusercontent.com/d/'+id;
+    el.style.opacity='0.4';
+    el.title='Loading photo\u2026';
+    el.src=lh3;
+    el.onload=function(){
+      el.onload=null;el.onerror=null;
+      el.style.opacity='';el.title='';
+      Img._cache[id]=lh3;   // cache so future renders skip the load attempt
+    };
+    el.onerror=function(){
+      el.onerror=null;el.onload=null;
+      // Direct CDN failed — fall back to Apps Script proxy
+      Img._proxy(id,el);
+    };
   },
 
   /* Fetch image bytes through Apps Script proxy, cache the result */
