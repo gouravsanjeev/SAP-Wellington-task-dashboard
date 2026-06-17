@@ -2287,10 +2287,7 @@ var Img={
       ?'Photo is saved in Google Drive — click to open it\n(Preview requires Apps Script Code_v14 to be deployed)'
       :'Photo unavailable: '+reason;
     if(driveLink){
-      el.addEventListener('click',function(e){
-        e.stopPropagation();
-        window.open(driveLink,'_blank');
-      },{once:true});
+      el.onclick=function(e){e.stopPropagation();window.open(driveLink,'_blank');};
     }
   }
 };
@@ -2643,9 +2640,9 @@ var Comments={
 function buildDetailBody(t,viewRole,taskId){
   var refImgs=(t.refPhotos||[]).map(function(p,i){
     var rmBtn=viewRole==='admin'?' <button class="ph-rm" title="Remove photo" onclick="event.stopPropagation();Admin.removeRefPhoto(\''+taskId+'\','+i+')">&#10005;</button>':'';
-    return'<div class="ph-item" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+(p.url||p.data||'')+"' alt='ref' data-durl='"+(p.url||p.data||'')+"'/>"+rmBtn+'</div>';
+    return'<div class="ph-item"><img src="'+(p.url||p.data||'')+"' alt='ref' data-durl='"+(p.url||p.data||'')+"' onclick='LB.open(this.src)'/>"+rmBtn+'</div>';
   }).join('');
-  var evImgs=(t.evidencePhotos||[]).map(function(p){return'<div class="ph-item" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+(p.url||p.data||'')+"' alt='ev' data-durl='"+(p.url||p.data||'')+"'/></div>"}).join('');
+  var evImgs=(t.evidencePhotos||[]).map(function(p){return'<div class="ph-item"><img src="'+(p.url||p.data||'')+"' alt='ev' data-durl='"+(p.url||p.data||'')+"' onclick='LB.open(this.src)'/></div>"}).join('');
   var crDate=t.createdAt?new Date(t.createdAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'';
   var cDate=t.completedAt?new Date(t.completedAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'';
 
