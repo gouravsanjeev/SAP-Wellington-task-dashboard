@@ -157,6 +157,9 @@ textarea{resize:vertical;min-height:88px}
 .det-item label{font-size:10px;color:var(--txt3);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
 .det-item .val{font-size:13px;color:var(--txt);font-weight:500}
 .ph-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+.ph-cell{display:flex;flex-direction:column;gap:3px}
+.ph-del-row{background:none;border:none;color:#c00;font-size:11px;cursor:pointer;padding:2px 0;text-align:center;font-weight:500;letter-spacing:.2px}
+.ph-del-row:hover{text-decoration:underline}
 .ph-item{border-radius:var(--r);overflow:hidden;aspect-ratio:4/3;border:1px solid var(--brd);cursor:zoom-in;transition:opacity .15s;position:relative}
 .ph-item img{width:100%;height:100%;object-fit:cover;display:block}
 .ph-item:hover{opacity:.88}
@@ -213,6 +216,8 @@ textarea{resize:vertical;min-height:88px}
 #lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;z-index:2000;cursor:zoom-out}
 #lightbox img{max-width:92vw;max-height:90vh;border-radius:var(--r);box-shadow:var(--sh3)}
 .lb-x{position:absolute;top:20px;right:20px;background:rgba(255,255,255,.15);color:#fff;border:none;width:44px;height:44px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.lb-del{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#c00;color:#fff;border:none;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:600;cursor:pointer;z-index:10001;letter-spacing:.3px}
+.lb-del:hover{background:#a00}
 @media(max-width:768px){.sidebar{display:none}.main{padding:14px}.stats{grid-template-columns:1fr 1fr}.task-grid{grid-template-columns:1fr}.frow{grid-template-columns:1fr}.modal-wide{max-width:100%}}
 
 /* ── SYNC / LOADING ── */
@@ -1915,8 +1920,20 @@ var Store = {
                 console.log('[Store] syncDown: 60s dirty window active — keeping local data.');
                 self._syncUp(self.get());
               } else {
-                // Window expired — Sheet data is authoritative
-                localStorage.setItem(self.KEY, res.data);
+                // Window expired — merge Sheet data with local, never drop photos or comments
+                var local = self.get();
+                var merged = remote.map(function(rt){
+                  var lt = local.find(function(t){ return t.id===rt.id; });
+                  if(!lt) return rt;
+                  // Keep whichever side has more items — protects against _syncUp delay/failure
+                  return Object.assign({}, rt, {
+                    refPhotos:      (lt.refPhotos||[]).length      > (rt.refPhotos||[]).length      ? lt.refPhotos      : rt.refPhotos,
+                    evidencePhotos: (lt.evidencePhotos||[]).length > (rt.evidencePhotos||[]).length ? lt.evidencePhotos : rt.evidencePhotos,
+                    comments:       (lt.comments||[]).length       > (rt.comments||[]).length       ? lt.comments       : rt.comments
+                  });
+                });
+                localStorage.setItem(self.KEY, JSON.stringify(merged));
+                console.log('[Store] syncDown: merged Sheet + local — photos/comments preserved.');
               }
 
             } else {
@@ -2173,8 +2190,13 @@ var M={
   close:function(id){document.getElementById(id).classList.add('hidden');document.body.style.overflow=''}
 };
 var LB={
-  open:function(src){document.getElementById('lbImg').src=src;document.getElementById('lightbox').classList.remove('hidden')},
-  close:function(){document.getElementById('lightbox').classList.add('hidden')}
+  open:function(src){
+    document.getElementById('lbImg').src=src;
+    document.getElementById('lightbox').classList.remove('hidden');
+  },
+  close:function(){
+    document.getElementById('lightbox').classList.add('hidden');
+  }
 };
 
 // ── TOAST ─────────────────────────────────────────────────────────
@@ -2623,7 +2645,7 @@ var Comments={
       var avCls=isMgr?'mgr':'ext';
       var bubCls=isMgr?'cmt-bubble mgr-bub':'cmt-bubble';
       var roleLbl=isMgr?'<span class="cmt-role mgr">Task Manager</span>':'<span class="cmt-role ext">Contractor</span>';
-      var photos=(c.photos||[]).map(function(p){return'<div class="cmt-photo" onclick="LB.open(this.querySelector(\'img\').src)"><img src="'+(p.url||p.data||'')+"' alt='' data-durl='"+(p.url||p.data||'')+"'/></div>"}).join('');
+      var photos=(c.photos||[]).map(function(p){return '<div class="cmt-photo"><img src="'+(p.url||p.data||'')+'" alt="" data-durl="'+(p.url||p.data||'')+'" onclick="LB.open(this.src)"/></div>';}).join('');
       return'<div class="cmt-item">'
         +'<div class="cmt-av '+avCls+'">'+initials(c.author)+'</div>'
         +'<div class="'+bubCls+'">'
@@ -2639,10 +2661,10 @@ var Comments={
 // ── BUILD DETAIL BODY ─────────────────────────────────────────────
 function buildDetailBody(t,viewRole,taskId){
   var refImgs=(t.refPhotos||[]).map(function(p,i){
-    var rmBtn=viewRole==='admin'?' <button class="ph-rm" title="Remove photo" onclick="event.stopPropagation();Admin.removeRefPhoto(\''+taskId+'\','+i+')">&#10005;</button>':'';
-    return'<div class="ph-item"><img src="'+(p.url||p.data||'')+"' alt='ref' data-durl='"+(p.url||p.data||'')+"' onclick='LB.open(this.src)'/>"+rmBtn+'</div>';
+    var delBtn=viewRole==='admin'?'<button class="ph-del-row" onclick="Admin.removeRefPhoto(\''+taskId+'\','+i+')">&#10005; Remove</button>':'';
+    return '<div class="ph-cell"><div class="ph-item"><img src="'+(p.url||p.data||'')+'" alt="ref" data-durl="'+(p.url||p.data||'')+'" onclick="LB.open(this.src)"/></div>'+delBtn+'</div>';
   }).join('');
-  var evImgs=(t.evidencePhotos||[]).map(function(p){return'<div class="ph-item"><img src="'+(p.url||p.data||'')+"' alt='ev' data-durl='"+(p.url||p.data||'')+"' onclick='LB.open(this.src)'/></div>"}).join('');
+  var evImgs=(t.evidencePhotos||[]).map(function(p){return '<div class="ph-item"><img src="'+(p.url||p.data||'')+'" alt="ev" data-durl="'+(p.url||p.data||'')+'" onclick="LB.open(this.src)"/></div>';}).join('');
   var crDate=t.createdAt?new Date(t.createdAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'';
   var cDate=t.completedAt?new Date(t.completedAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'';
 
@@ -2757,7 +2779,7 @@ Admin.view=function(id){
 };
 
 Admin.removeRefPhoto=function(id,idx){
-  if(!confirm('Remove this photo? This cannot be undone.'))return;
+  if(!confirm('Remove this photo?'))return;
   var t=Store.byId(id);if(!t)return;
   var photos=(t.refPhotos||[]).slice();
   photos.splice(idx,1);
