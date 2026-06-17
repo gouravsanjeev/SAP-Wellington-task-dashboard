@@ -1852,11 +1852,13 @@ var Store = {
   // ─── WRITE (localStorage first, then async push to Sheets) ────────
   save: function (tasks) {
     localStorage.setItem(this.KEY, JSON.stringify(tasks));
-    // Mark local data as dirty (unconfirmed by Sheet).
-    // syncDown will NOT overwrite localStorage while this flag is set,
-    // preventing a race condition where a page refresh fetches stale
-    // Sheet data before the async _syncUp has finished.
-    localStorage.setItem(this.KEY + '_dirty', Date.now().toString());
+    // Protect local data for 60 seconds after every save.
+    // Google Sheets has a server-side write propagation delay — even after
+    // _syncUp returns {ok:true}, the next GET can still return stale data.
+    // Storing an expiry time (not a start time) means syncDown will never
+    // overwrite localStorage within the 60-second window, regardless of
+    // whether _syncUp has finished or not.
+    localStorage.setItem(this.KEY + '_dirty', (Date.now() + 60000).toString());
     this._syncUp(tasks);
   },
   add:    function (t)       { var a = this.get(); a.unshift(t); this.save(a); },
@@ -1899,21 +1901,20 @@ var Store = {
             var remote = JSON.parse(res.data);
             if (Array.isArray(remote) && remote.length) {
 
-              // ── Dirty-flag guard ─────────────────────────────────────
-              // If local data has been saved but not yet confirmed by the
-              // Sheet (i.e. _syncUp is still in-flight or just completed),
-              // do NOT overwrite localStorage with potentially stale Sheet
-              // data. Instead, re-push local data to the Sheet.
-              // The flag expires after 5 minutes to prevent it getting stuck.
-              var dirtyTs  = parseInt(localStorage.getItem(self.KEY + '_dirty') || '0');
-              var isDirty  = dirtyTs > 0 && (Date.now() - dirtyTs) < 5 * 60 * 1000;
+              // ── Dirty-window guard ───────────────────────────────────────
+              // save() stamps an expiry time 60 seconds in the future.
+              // While we are inside that window, do NOT overwrite local data —
+              // even if _syncUp already returned {ok:true}, the Sheet may not
+              // yet serve the new data on a GET (propagation delay).
+              var dirtyUntil = parseInt(localStorage.getItem(self.KEY + '_dirty') || '0');
+              var isDirty    = Date.now() < dirtyUntil;
 
               if (isDirty) {
-                // Local has unconfirmed changes — push them, keep local data
-                console.log('[Store] syncDown: dirty flag set — re-pushing local data to Sheet.');
+                // Still within protection window — keep local, re-push to Sheet
+                console.log('[Store] syncDown: 60s dirty window active — keeping local data.');
                 self._syncUp(self.get());
               } else {
-                // Safe to accept Sheet data
+                // Window expired — Sheet data is authoritative
                 localStorage.setItem(self.KEY, res.data);
               }
 
@@ -1947,10 +1948,6 @@ var Store = {
   _syncUp: function (tasks) {
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') return;
     var self = this;
-    // Capture the dirty timestamp at the moment we start this upload.
-    // After success, we only clear the dirty flag if no newer save has
-    // happened since (i.e. the flag hasn't been refreshed by another save).
-    var dirtyAtStart = localStorage.getItem(self.KEY + '_dirty');
     var payload = JSON.stringify({ action: 'save', data: JSON.stringify(tasks) });
     fetch(SCRIPT_URL, {
       method:  'POST',
@@ -1959,16 +1956,11 @@ var Store = {
     })
     .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP '+r.status); })
     .then(function(d){
-      if(d.ok){
-        // Clear the dirty flag only if no newer local save has happened
-        // since we started this upload (prevents clearing a flag from a
-        // more recent save that hasn't been pushed yet).
-        if(localStorage.getItem(self.KEY + '_dirty') === dirtyAtStart){
-          localStorage.removeItem(self.KEY + '_dirty');
-        }
-      } else {
-        console.warn('[Store] save returned:', d.error);
-      }
+      if(!d.ok) console.warn('[Store] _syncUp — Sheet returned error:', d.error);
+      // Do NOT clear the dirty flag here. The 60-second expiry window in
+      // save() is the only thing that should end the protection period.
+      // Clearing it here would re-expose local data to stale Sheet overwrites
+      // caused by Google Sheets write-propagation delays.
     })
     .catch(function(e){ console.error('[Store] _syncUp failed:', e); });
   },
