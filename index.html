@@ -1902,10 +1902,16 @@ var Store = {
     localStorage.setItem(this.KEY + '_dirty', (Date.now() + 60000).toString());
     this._syncUp(tasks);
   },
-  add:    function (t)       { var a = this.get(); a.unshift(t); this.save(a); },
+  add:    function (t)       { var a = this.get(); a.unshift(t); this.save(a); this._addPending(t.id); },
   update: function (id, upd) { this.save(this.get().map(function (t) { return t.id === id ? Object.assign({}, t, upd, {updatedAt: new Date().toISOString()}) : t; })); },
-  del:    function (id)      { this.save(this.get().filter(function (t) { return t.id !== id; })); },
+  del:    function (id)      { this.save(this.get().filter(function (t) { return t.id !== id; })); this._removePending(id); },
   byId:   function (id)      { return this.get().find(function (t) { return t.id === id; }) || null; },
+
+  // ─── PENDING-ADDS: track locally-added tasks until Sheet confirms them ──
+  _pk: function () { return this.KEY + '_pending'; },
+  _addPending:    function (id) { var p=this._getPending(); if(p.indexOf(id)<0){p.push(id);} localStorage.setItem(this._pk(),JSON.stringify(p)); },
+  _removePending: function (id) { localStorage.setItem(this._pk(),JSON.stringify(this._getPending().filter(function(x){return x!==id;}))); },
+  _getPending:    function ()   { try{return JSON.parse(localStorage.getItem(this._pk())||'[]');}catch(e){return[];} },
 
   // ─── SEED from embedded data (first open only) ────────────────────
   _seed: function () {
@@ -1996,13 +2002,34 @@ var Store = {
                     hasLocalOnly = true;
                   }
                 });
-                if (hasLocalOnly) {
-                  // Re-push to Sheet: resets dirty flag + retries _syncUp so task reaches Sheet
+
+                // ── Pending-adds safety net ─────────────────────────────────
+                // Every task added locally is tracked in _pending until the
+                // Sheet confirms it.  Even if the merge missed it, we re-add it.
+                var pending = self._getPending();
+                var stillPending = [];
+                pending.forEach(function(pid){
+                  var inRemote = remote.find(function(rt){ return rt.id===pid; });
+                  if(inRemote){
+                    // Sheet confirmed — nothing to do, task is already in merged
+                  } else {
+                    var localTask = local.find(function(lt){ return lt.id===pid; });
+                    if(localTask){
+                      if(!merged.find(function(m){ return m.id===pid; })) merged.unshift(localTask);
+                      stillPending.push(pid);   // still not on Sheet — keep retrying
+                    }
+                  }
+                });
+                localStorage.setItem(self._pk(), JSON.stringify(stillPending));
+
+                if(stillPending.length > 0 || hasLocalOnly){
+                  // Push the full merged list (including local-only tasks) to Sheet
                   self.save(merged);
-                  console.log('[Store] syncDown: local-only tasks detected — re-pushing to Sheet.');
+                  console.log('[Store] syncDown: '+stillPending.length+' pending + '+
+                    (hasLocalOnly?'local-only':0)+' tasks — re-pushing to Sheet.');
                 } else {
                   localStorage.setItem(self.KEY, JSON.stringify(merged));
-                  console.log('[Store] syncDown: merged Sheet + local — photos/comments/timestamps preserved.');
+                  console.log('[Store] syncDown: merged Sheet + local — all confirmed.');
                 }
               }
 
@@ -2526,7 +2553,7 @@ var Admin={
       'asgn-sc':function(t){return t.assigneeCode==='SUPERCARE'},
       'asgn-sl':function(t){return t.assigneeCode==='SANJEEV'},
       'asgn-re':function(t){return t.assigneeCode==='RAPID-ELEC'},
-      'asgn-it':function(t){return t.assigneeCode==='IT'}
+      'asgn-it':function(t){var c=(t.assigneeCode||'').toUpperCase();var n=(t.assigneeName||'').trim().toUpperCase();return c==='IT'||n==='IT';}
     };
     var empties={
       overview:'No tasks yet',pending:'No in-progress tasks',completed:'No completed tasks',
@@ -2563,7 +2590,7 @@ var Admin={
     var asc=tasks.filter(function(t){return t.assigneeCode==='SUPERCARE'});
     var asl=tasks.filter(function(t){return t.assigneeCode==='SANJEEV'});
     var are=tasks.filter(function(t){return t.assigneeCode==='RAPID-ELEC'});
-    var ait=tasks.filter(function(t){return t.assigneeCode==='IT'});
+    var ait=tasks.filter(function(t){var c=(t.assigneeCode||'').toUpperCase();var n=(t.assigneeName||'').trim().toUpperCase();return c==='IT'||n==='IT';});
     var bAsc=document.getElementById('bAsc');if(bAsc)bAsc.textContent=asc.length;
     var bAsl=document.getElementById('bAsl');if(bAsl)bAsl.textContent=asl.length;
     var bAre=document.getElementById('bAre');if(bAre)bAre.textContent=are.length;
