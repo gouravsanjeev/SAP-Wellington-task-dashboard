@@ -104,6 +104,7 @@ body{font-family:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;background:va
 .tc-meta{font-size:11px;color:var(--txt2);margin-bottom:10px;display:flex;flex-direction:column;gap:3px}
 .tc-meta span{display:flex;align-items:center;gap:5px}
 .tc-foot{display:flex;align-items:center;justify-content:space-between;padding-top:10px;border-top:1px solid var(--brd);gap:6px;flex-wrap:wrap}
+.tc-updated{font-size:10px;color:var(--txt3);padding:4px 0 6px;border-top:1px solid var(--brd);margin-top:4px}
 .asgn{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--txt2)}
 .avatar{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
 .av-sup{background:#107E3E}.av-san{background:#E76500}.av-rap{background:#6A1B9A}.av-mgr{background:var(--navy)}
@@ -1868,7 +1869,7 @@ var Store = {
     this._syncUp(tasks);
   },
   add:    function (t)       { var a = this.get(); a.unshift(t); this.save(a); },
-  update: function (id, upd) { this.save(this.get().map(function (t) { return t.id === id ? Object.assign({}, t, upd) : t; })); },
+  update: function (id, upd) { this.save(this.get().map(function (t) { return t.id === id ? Object.assign({}, t, upd, {updatedAt: new Date().toISOString()}) : t; })); },
   del:    function (id)      { this.save(this.get().filter(function (t) { return t.id !== id; })); },
   byId:   function (id)      { return this.get().find(function (t) { return t.id === id; }) || null; },
 
@@ -1880,6 +1881,24 @@ var Store = {
       });
       localStorage.setItem(this.KEY, JSON.stringify(tasks));
     }
+  },
+
+  // ─── MIGRATE: backfill createdAt for tasks written before it existed ──
+  _migrate: function () {
+    var tasks = this.get();
+    if (!tasks.length) return;
+    var seedMap = {};
+    (typeof SEED_TASKS !== 'undefined' ? SEED_TASKS : []).forEach(function (s) { seedMap[s.id] = s; });
+    var changed = false;
+    var migrated = tasks.map(function (t) {
+      if (!t.createdAt && seedMap[t.id] && seedMap[t.id].createdAt) {
+        changed = true;
+        return Object.assign({}, t, { createdAt: seedMap[t.id].createdAt });
+      }
+      return t;
+    });
+    // Write directly (no _syncUp here — syncDown will push updated data)
+    if (changed) localStorage.setItem(this.KEY, JSON.stringify(migrated));
   },
 
   // ─── PULL latest data from Sheets ─────────────────────────────────
@@ -1926,14 +1945,31 @@ var Store = {
                   var lt = local.find(function(t){ return t.id===rt.id; });
                   if(!lt) return rt;
                   // Keep whichever side has more items — protects against _syncUp delay/failure
+                  // Also preserve createdAt/updatedAt from local (Sheet may not store them)
                   return Object.assign({}, rt, {
                     refPhotos:      (lt.refPhotos||[]).length      > (rt.refPhotos||[]).length      ? lt.refPhotos      : rt.refPhotos,
                     evidencePhotos: (lt.evidencePhotos||[]).length > (rt.evidencePhotos||[]).length ? lt.evidencePhotos : rt.evidencePhotos,
-                    comments:       (lt.comments||[]).length       > (rt.comments||[]).length       ? lt.comments       : rt.comments
+                    comments:       (lt.comments||[]).length       > (rt.comments||[]).length       ? lt.comments       : rt.comments,
+                    createdAt:      lt.createdAt  || rt.createdAt  || null,
+                    updatedAt:      (lt.updatedAt||'') > (rt.updatedAt||'') ? lt.updatedAt : (rt.updatedAt || lt.updatedAt || null)
                   });
                 });
-                localStorage.setItem(self.KEY, JSON.stringify(merged));
-                console.log('[Store] syncDown: merged Sheet + local — photos/comments preserved.');
+                // Also preserve local-only tasks (newly added, not yet synced to Sheet)
+                var hasLocalOnly = false;
+                local.forEach(function(lt){
+                  if(!remote.find(function(rt){ return rt.id===lt.id; })) {
+                    merged.unshift(lt);
+                    hasLocalOnly = true;
+                  }
+                });
+                if (hasLocalOnly) {
+                  // Re-push to Sheet: resets dirty flag + retries _syncUp so task reaches Sheet
+                  self.save(merged);
+                  console.log('[Store] syncDown: local-only tasks detected — re-pushing to Sheet.');
+                } else {
+                  localStorage.setItem(self.KEY, JSON.stringify(merged));
+                  console.log('[Store] syncDown: merged Sheet + local — photos/comments/timestamps preserved.');
+                }
               }
 
             } else {
@@ -2354,6 +2390,11 @@ function taskCard(t,role){
   var imgHtml=imgs.length?'<img data-durl="'+(imgs[0].url||imgs[0].data||'')+'" alt="task"/>'+(imgs.length>1?'<span class="img-cnt">&#128247; '+imgs.length+'</span>':''):'<div class="no-img">'+catIc+'<span>No photo</span></div>';
   var clickFn=role==='admin'?'Admin.view(\''+t.id+'\')':'External.view(\''+t.id+'\')';
   var brd=isOverdue(t)?' style="border-color:#FFB8B8"':'';
+  // Latest activity: most recent comment, updatedAt, or createdAt
+  var lastTs=t.createdAt||'';
+  if(t.updatedAt&&t.updatedAt>lastTs)lastTs=t.updatedAt;
+  (t.comments||[]).forEach(function(c){if(c.ts&&c.ts>lastTs)lastTs=c.ts;});
+  var lastFmt=lastTs?fmtTs(lastTs):'';
   return'<div class="task-card" onclick="'+clickFn+'"'+brd+'>'
     +'<div class="tc-thumb">'+imgHtml+'</div>'
     +'<div class="tc-body">'
@@ -2363,6 +2404,7 @@ function taskCard(t,role){
     +'<span>&#128197; Due: '+fmtDate(t.dueDate)+'</span>'
     +'<span style="font-family:monospace;font-size:10px;color:var(--txt3)">'+t.id+(t.xId?' (Ref #'+t.xId+')':'')+(cmtCount?' &nbsp;&#128172; '+cmtCount:'')+'</span>'
     +'</div>'
+    +(lastFmt?'<div class="tc-updated">&#128336; Last update: '+lastFmt+'</div>':'')
     +'<div class="tc-foot">'
     +'<div class="asgn"><div class="avatar '+avClass(t.assigneeCode)+'">'+initials(t.assigneeName)+'</div><span>'+escH(t.assigneeName)+'</span></div>'
     +priHtml(t.priority)
@@ -2886,6 +2928,7 @@ External.submitUpdate=function(){
 // ── STARTUP: load from Sheets (or local cache) then hide loading overlay ──
 (function () {
   Store._seed();
+  Store._migrate();
   Store.syncDown(function () {
     document.getElementById('loadingOverlay').style.display = 'none';
   });
