@@ -107,7 +107,7 @@ body{font-family:'IBM Plex Sans','Helvetica Neue',Arial,sans-serif;background:va
 .tc-updated{font-size:10px;color:var(--txt3);padding:4px 0 6px;border-top:1px solid var(--brd);margin-top:4px}
 .asgn{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--txt2)}
 .avatar{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
-.av-sup{background:#107E3E}.av-san{background:#E76500}.av-rap{background:#6A1B9A}.av-mgr{background:var(--navy)}
+.av-sup{background:#107E3E}.av-san{background:#E76500}.av-rap{background:#6A1B9A}.av-it{background:#0070F2}.av-mgr{background:var(--navy)}
 /* EXTERNAL UPDATE BUTTON ON CARD */
 .ext-update-row{padding:0 14px 12px;display:flex;gap:8px}
 .ext-update-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 12px;border-radius:var(--r);font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--brd);background:var(--bg2);color:var(--txt2);font-family:inherit;transition:all .15s}
@@ -301,6 +301,9 @@ textarea{resize:vertical;min-height:88px}
       <div class="acc-code-row" style="cursor:pointer" onclick="document.getElementById('extCode').value='RAPID-ELEC';document.getElementById('extName').value='Rapid Electrical';document.getElementById('extCode').focus();toast('Rapid Electrical selected — tap Access My Tasks.','success')">
         <span class="name">&#128310; Rapid Electrical</span><span class="code">RAPID-ELEC</span>
       </div>
+      <div class="acc-code-row" style="cursor:pointer" onclick="document.getElementById('extCode').value='IT';document.getElementById('extName').value='IT - Others';document.getElementById('extCode').focus();toast('IT - Others selected — tap Access My Tasks.','success')">
+        <span class="name">&#128187; IT - Others</span><span class="code">IT</span>
+      </div>
     </div>
     <div class="fg"><label>Your Name / Company <span class="req">*</span></label><input type="text" id="extName" placeholder="e.g. Supercare NZ"/></div>
     <div class="fg"><label>Access Code <span class="req">*</span></label><input type="text" id="extCode" placeholder="e.g. SUPERCARE" onkeydown="if(event.key==='Enter')App.externalLogin()"/></div>
@@ -323,6 +326,12 @@ textarea{resize:vertical;min-height:88px}
     <button class="sb-item" onclick="Admin.show('cat-cl')" id="na-cl">&#129529;&nbsp;Cleaning <span class="sb-badge" id="bCl">0</span></button>
     <button class="sb-item" onclick="Admin.show('cat-rm')" id="na-rm">&#128295;&nbsp;Repair &amp; Maint. <span class="sb-badge o" id="bRm">0</span></button>
     <button class="sb-item" onclick="Admin.show('cat-sl')" id="na-sl">&#128101;&nbsp;Site Lead <span class="sb-badge pu" id="bSl">0</span></button>
+    <div class="sb-divider"></div>
+    <span class="sb-label">By Assignee</span>
+    <button class="sb-item" onclick="Admin.show('asgn-sc')" id="na-asc">&#128308;&nbsp;Supercare NZ <span class="sb-badge g" id="bAsc">0</span></button>
+    <button class="sb-item" onclick="Admin.show('asgn-sl')" id="na-asl">&#128309;&nbsp;Site Lead <span class="sb-badge o" id="bAsl">0</span></button>
+    <button class="sb-item" onclick="Admin.show('asgn-re')" id="na-are">&#9889;&nbsp;Rapid Elec <span class="sb-badge pu" id="bAre">0</span></button>
+    <button class="sb-item" onclick="Admin.show('asgn-it')" id="na-ait">&#128187;&nbsp;IT - Others <span class="sb-badge" id="bAit">0</span></button>
     <div class="sb-divider"></div>
     <span class="sb-label">Actions</span>
     <button class="sb-item" onclick="Admin.openCreate()">&#43;&nbsp;New Task</button>
@@ -383,6 +392,24 @@ textarea{resize:vertical;min-height:88px}
     <section id="s-cat-sl" class="hidden">
       <div class="pg-hdr"><div class="pg-hdr-left"><h2>Site Lead Actions</h2><p>Tasks to be coordinated and actioned by the site lead.</p></div></div>
       <div class="task-grid" id="slGrid"></div>
+    </section>
+
+    <!-- ASSIGNEE SECTIONS -->
+    <section id="s-asgn-sc" class="hidden">
+      <div class="pg-hdr"><div class="pg-hdr-left"><h2>&#128308; Supercare NZ</h2><p>All tasks assigned to Supercare NZ.</p></div></div>
+      <div class="task-grid" id="ascGrid"></div>
+    </section>
+    <section id="s-asgn-sl" class="hidden">
+      <div class="pg-hdr"><div class="pg-hdr-left"><h2>&#128309; Site Lead</h2><p>All tasks assigned to the site lead (Sanjeev).</p></div></div>
+      <div class="task-grid" id="aslGrid"></div>
+    </section>
+    <section id="s-asgn-re" class="hidden">
+      <div class="pg-hdr"><div class="pg-hdr-left"><h2>&#9889; Rapid Electrical</h2><p>All tasks assigned to Rapid Electrical.</p></div></div>
+      <div class="task-grid" id="areGrid"></div>
+    </section>
+    <section id="s-asgn-it" class="hidden">
+      <div class="pg-hdr"><div class="pg-hdr-left"><h2>&#128187; IT - Others</h2><p>All tasks assigned to IT and other teams.</p></div></div>
+      <div class="task-grid" id="aitGrid"></div>
     </section>
 
     <!-- SETTINGS SECTION -->
@@ -475,8 +502,9 @@ textarea{resize:vertical;min-height:88px}
           <label>Assign To <span class="req">*</span></label>
           <select id="ctAsgn">
             <option value="Supercare NZ|SUPERCARE">Supercare NZ</option>
-            <option value="Sanjeev|SANJEEV">Sanjeev</option>
+            <option value="Sanjeev|SANJEEV">Sanjeev (Site Lead)</option>
             <option value="Rapid Electrical|RAPID-ELEC">Rapid Electrical</option>
+            <option value="IT - Others|IT">IT - Others</option>
             <option value="custom">+ Other...</option>
           </select>
         </div>
@@ -2377,7 +2405,7 @@ function escH(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/
 function initials(n){return(n||'?').split(' ').slice(0,2).map(function(w){return w[0]||'?'}).join('').toUpperCase()}
 function copyCode(el){document.getElementById('extCode').value=el.textContent;document.getElementById('extCode').focus();toast('Access code filled in.','success')}
 function catTag(cat){var m={'Cleaning Activities':['cat-cl','&#129529; Cleaning'],'Repair & Maintenance - Handyman Works':['cat-rm','&#128295; Repair & Maint.'],'Site Lead to Coordinate and Action':['cat-sl','&#128101; Site Lead']};var v=m[cat]||['cat-gen',escH(cat||'General')];return'<span class="cat-tag '+v[0]+'">'+v[1]+'</span>'}
-function avClass(code){return code==='SUPERCARE'?'av-sup':code==='SANJEEV'?'av-san':code==='RAPID-ELEC'?'av-rap':''}
+function avClass(code){return code==='SUPERCARE'?'av-sup':code==='SANJEEV'?'av-san':code==='RAPID-ELEC'?'av-rap':code==='IT'?'av-it':''}
 function statusBadge(t){if(t.status==='completed')return'<span class="badge b-done">&#10003; Completed</span>';if(isOverdue(t))return'<span class="badge b-over">&#9888; Overdue</span>';if(t.status==='inprogress')return'<span class="badge b-prog">&#9654; In Progress</span>';return'<span class="badge b-pend">&#9711; Pending</span>'}
 function priHtml(p){var m={high:['ph','High'],medium:['pm','Medium'],low:['pl','Low']};var v=m[p]||m.medium;return'<span style="display:inline-flex;align-items:center;gap:5px"><span class="pdot '+v[0]+'"></span>'+v[1]+'</span>'}
 
@@ -2462,8 +2490,8 @@ var App={
 };
 
 // ── ADMIN MODULE ──────────────────────────────────────────────────
-var ADMIN_SECTIONS=['overview','tasks','pending','completed','cat-cl','cat-rm','cat-sl','settings'];
-var ADMIN_NAV_IDS={overview:'na-ov',tasks:'na-all',pending:'na-pend',completed:'na-done','cat-cl':'na-cl','cat-rm':'na-rm','cat-sl':'na-sl',settings:'na-settings'};
+var ADMIN_SECTIONS=['overview','tasks','pending','completed','cat-cl','cat-rm','cat-sl','asgn-sc','asgn-sl','asgn-re','asgn-it','settings'];
+var ADMIN_NAV_IDS={overview:'na-ov',tasks:'na-all',pending:'na-pend',completed:'na-done','cat-cl':'na-cl','cat-rm':'na-rm','cat-sl':'na-sl','asgn-sc':'na-asc','asgn-sl':'na-asl','asgn-re':'na-are','asgn-it':'na-ait',settings:'na-settings'};
 
 var _editId=null;
 
@@ -2481,18 +2509,26 @@ var Admin={
   _render:function(sec){
     var tasks=Store.get();
     Admin._updateStats(tasks);
-    var grids={overview:'recentGrid',tasks:'allGrid',pending:'pendGrid',completed:'doneGrid','cat-cl':'clGrid','cat-rm':'rmGrid','cat-sl':'slGrid'};
+    var grids={overview:'recentGrid',tasks:'allGrid',pending:'pendGrid',completed:'doneGrid','cat-cl':'clGrid','cat-rm':'rmGrid','cat-sl':'slGrid','asgn-sc':'ascGrid','asgn-sl':'aslGrid','asgn-re':'areGrid','asgn-it':'aitGrid'};
     var filters={
       overview:function(t,i){return i<8},
       pending:function(t){return t.status!=='completed'},
       completed:function(t){return t.status==='completed'},
       'cat-cl':function(t){return t.category==='Cleaning Activities'},
       'cat-rm':function(t){return t.category==='Repair & Maintenance - Handyman Works'},
-      'cat-sl':function(t){return t.category==='Site Lead to Coordinate and Action'}
+      'cat-sl':function(t){return t.category==='Site Lead to Coordinate and Action'},
+      'asgn-sc':function(t){return t.assigneeCode==='SUPERCARE'},
+      'asgn-sl':function(t){return t.assigneeCode==='SANJEEV'},
+      'asgn-re':function(t){return t.assigneeCode==='RAPID-ELEC'},
+      'asgn-it':function(t){return t.assigneeCode==='IT'}
     };
     var empties={
       overview:'No tasks yet',pending:'No in-progress tasks',completed:'No completed tasks',
-      'cat-cl':'No cleaning tasks','cat-rm':'No repair tasks','cat-sl':'No site lead tasks'
+      'cat-cl':'No cleaning tasks','cat-rm':'No repair tasks','cat-sl':'No site lead tasks',
+      'asgn-sc':'No tasks assigned to Supercare NZ',
+      'asgn-sl':'No tasks assigned to Site Lead',
+      'asgn-re':'No tasks assigned to Rapid Electrical',
+      'asgn-it':'No tasks assigned to IT'
     };
     if(sec==='tasks'){Admin.filterTasks();return}
     var fn=filters[sec];
@@ -2517,6 +2553,15 @@ var Admin={
     var rm=tasks.filter(function(t){return t.category==='Repair & Maintenance - Handyman Works'});
     var sl=tasks.filter(function(t){return t.category==='Site Lead to Coordinate and Action'});
     ['Cl','Rm','Sl'].forEach(function(k,i){var n=[cl,rm,sl][i].length;document.getElementById('st'+k).textContent=n;document.getElementById('b'+k).textContent=n;});
+    // Assignee badges
+    var asc=tasks.filter(function(t){return t.assigneeCode==='SUPERCARE'});
+    var asl=tasks.filter(function(t){return t.assigneeCode==='SANJEEV'});
+    var are=tasks.filter(function(t){return t.assigneeCode==='RAPID-ELEC'});
+    var ait=tasks.filter(function(t){return t.assigneeCode==='IT'});
+    var bAsc=document.getElementById('bAsc');if(bAsc)bAsc.textContent=asc.length;
+    var bAsl=document.getElementById('bAsl');if(bAsl)bAsl.textContent=asl.length;
+    var bAre=document.getElementById('bAre');if(bAre)bAre.textContent=are.length;
+    var bAit=document.getElementById('bAit');if(bAit)bAit.textContent=ait.length;
   },
   filterTasks:function(){
     var s=(document.getElementById('srch').value||'').toLowerCase();
@@ -2558,7 +2603,7 @@ var Admin={
     document.getElementById('ctDue').value=t.dueDate||'';
     // Assignee
     var presetVal=t.assigneeName+'|'+t.assigneeCode;
-    var presetOpts=['Supercare NZ|SUPERCARE','Sanjeev|SANJEEV','Rapid Electrical|RAPID-ELEC'];
+    var presetOpts=['Supercare NZ|SUPERCARE','Sanjeev|SANJEEV','Rapid Electrical|RAPID-ELEC','IT - Others|IT'];
     if(presetOpts.indexOf(presetVal)>=0){
       document.getElementById('ctAsgn').value=presetVal;
       document.getElementById('customAsgn').classList.add('hidden');
