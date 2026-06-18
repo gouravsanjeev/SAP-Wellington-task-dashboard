@@ -318,6 +318,12 @@ textarea{resize:vertical;min-height:88px}
     <button class="sb-item active" onclick="Admin.show('overview')" id="na-ov">&#9732;&nbsp;Dashboard</button>
     <button class="sb-item" onclick="Admin.show('tasks')" id="na-all">&#128203;&nbsp;All Tasks <span class="sb-badge" id="bAll">0</span></button>
     <div class="sb-divider"></div>
+    <span class="sb-label">By Assignee</span>
+    <button class="sb-item" onclick="Admin.show('asgn-sc')" id="na-asc">&#128308;&nbsp;Supercare NZ <span class="sb-badge g" id="bAsc">0</span></button>
+    <button class="sb-item" onclick="Admin.show('asgn-sl')" id="na-asl">&#128309;&nbsp;Site Lead <span class="sb-badge o" id="bAsl">0</span></button>
+    <button class="sb-item" onclick="Admin.show('asgn-re')" id="na-are">&#9889;&nbsp;Rapid Elec <span class="sb-badge pu" id="bAre">0</span></button>
+    <button class="sb-item" onclick="Admin.show('asgn-it')" id="na-ait">&#128187;&nbsp;IT - Others <span class="sb-badge" id="bAit">0</span></button>
+    <div class="sb-divider"></div>
     <span class="sb-label">By Status</span>
     <button class="sb-item" onclick="Admin.show('pending')" id="na-pend">&#9711;&nbsp;In Progress <span class="sb-badge o" id="bPend">0</span></button>
     <button class="sb-item" onclick="Admin.show('completed')" id="na-done">&#10003;&nbsp;Completed <span class="sb-badge g" id="bDone">0</span></button>
@@ -325,13 +331,7 @@ textarea{resize:vertical;min-height:88px}
     <span class="sb-label">By Category</span>
     <button class="sb-item" onclick="Admin.show('cat-cl')" id="na-cl">&#129529;&nbsp;Cleaning <span class="sb-badge" id="bCl">0</span></button>
     <button class="sb-item" onclick="Admin.show('cat-rm')" id="na-rm">&#128295;&nbsp;Repair &amp; Maint. <span class="sb-badge o" id="bRm">0</span></button>
-    <button class="sb-item" onclick="Admin.show('cat-sl')" id="na-sl">&#128101;&nbsp;Site Lead <span class="sb-badge pu" id="bSl">0</span></button>
-    <div class="sb-divider"></div>
-    <span class="sb-label">By Assignee</span>
-    <button class="sb-item" onclick="Admin.show('asgn-sc')" id="na-asc">&#128308;&nbsp;Supercare NZ <span class="sb-badge g" id="bAsc">0</span></button>
-    <button class="sb-item" onclick="Admin.show('asgn-sl')" id="na-asl">&#128309;&nbsp;Site Lead <span class="sb-badge o" id="bAsl">0</span></button>
-    <button class="sb-item" onclick="Admin.show('asgn-re')" id="na-are">&#9889;&nbsp;Rapid Elec <span class="sb-badge pu" id="bAre">0</span></button>
-    <button class="sb-item" onclick="Admin.show('asgn-it')" id="na-ait">&#128187;&nbsp;IT - Others <span class="sb-badge" id="bAit">0</span></button>
+    <button class="sb-item" onclick="Admin.show('cat-sl')" id="na-sl">&#128101;&nbsp;Site Lead Cat. <span class="sb-badge pu" id="bSl">0</span></button>
     <div class="sb-divider"></div>
     <span class="sb-label">Actions</span>
     <button class="sb-item" onclick="Admin.openCreate()">&#43;&nbsp;New Task</button>
@@ -348,6 +348,12 @@ textarea{resize:vertical;min-height:88px}
         <div class="stat"><div class="stat-ic o">&#9654;</div><div><div class="stat-v" id="stProg">0</div><div class="stat-l">In Progress</div></div></div>
         <div class="stat"><div class="stat-ic g">&#10003;</div><div><div class="stat-v" id="stDone">0</div><div class="stat-l">Completed</div></div></div>
         <div class="stat"><div class="stat-ic pu">&#9888;</div><div><div class="stat-v" id="stOver">0</div><div class="stat-l">Overdue</div></div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px">
+        <div class="stat" style="flex-direction:column;align-items:flex-start;gap:4px;cursor:pointer;border-left:4px solid #107E3E" onclick="Admin.show('asgn-sc')"><div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">&#128308; Supercare NZ</div><div style="font-size:22px;font-weight:700" id="stAsc">0</div><div style="font-size:11px;color:var(--txt2)">tasks</div></div>
+        <div class="stat" style="flex-direction:column;align-items:flex-start;gap:4px;cursor:pointer;border-left:4px solid #E76500" onclick="Admin.show('asgn-sl')"><div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">&#128309; Site Lead</div><div style="font-size:22px;font-weight:700" id="stAsl">0</div><div style="font-size:11px;color:var(--txt2)">tasks</div></div>
+        <div class="stat" style="flex-direction:column;align-items:flex-start;gap:4px;cursor:pointer;border-left:4px solid #6A1B9A" onclick="Admin.show('asgn-re')"><div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">&#9889; Rapid Elec</div><div style="font-size:22px;font-weight:700" id="stAre">0</div><div style="font-size:11px;color:var(--txt2)">tasks</div></div>
+        <div class="stat" style="flex-direction:column;align-items:flex-start;gap:4px;cursor:pointer;border-left:4px solid #0070F2" onclick="Admin.show('asgn-it')"><div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">&#128187; IT - Others</div><div style="font-size:22px;font-weight:700" id="stAit">0</div><div style="font-size:11px;color:var(--txt2)">tasks</div></div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:26px">
         <div class="stat" style="flex-direction:column;align-items:flex-start;gap:4px;cursor:pointer" onclick="Admin.show('cat-cl')"><div style="font-size:11px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Cleaning Activities</div><div style="font-size:22px;font-weight:700" id="stCl">0</div><div style="font-size:11px;color:var(--txt2)">tasks</div></div>
@@ -2562,6 +2568,10 @@ var Admin={
     var bAsl=document.getElementById('bAsl');if(bAsl)bAsl.textContent=asl.length;
     var bAre=document.getElementById('bAre');if(bAre)bAre.textContent=are.length;
     var bAit=document.getElementById('bAit');if(bAit)bAit.textContent=ait.length;
+    var stAsc=document.getElementById('stAsc');if(stAsc)stAsc.textContent=asc.length;
+    var stAsl=document.getElementById('stAsl');if(stAsl)stAsl.textContent=asl.length;
+    var stAre=document.getElementById('stAre');if(stAre)stAre.textContent=are.length;
+    var stAit=document.getElementById('stAit');if(stAit)stAit.textContent=ait.length;
   },
   filterTasks:function(){
     var s=(document.getElementById('srch').value||'').toLowerCase();
