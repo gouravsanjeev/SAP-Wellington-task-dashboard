@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v38</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v39</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -1980,7 +1980,7 @@ var Store = {
 
     self._setStatus('syncing');
 
-    fetch(SCRIPT_URL + '?action=get', { cache: 'no-store' })
+    fetch(SCRIPT_URL + '?action=get&_=' + Date.now(), { cache: 'no-store' })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
@@ -2026,7 +2026,22 @@ var Store = {
               });
 
               // Step 3 – pending safety net: recover any task not confirmed by Sheet,
-              //           using full-object backup cache as last resort
+              //           using full-object backup cache as last resort.
+              //
+              //  SELF-HEALING: also re-enqueue local-only tasks that aren't in pending —
+              //  this catches the false-positive case where _upsertViaGet (old Code_v14)
+              //  reported success and cleared backup+pending even though nothing was saved.
+              merged.forEach(function (mt) {
+                var inRemote  = !!remote.find(function (rt) { return rt.id === mt.id; });
+                var inPending = (self._getPending().indexOf(mt.id) >= 0);
+                if (!inRemote && !inPending) {
+                  // Local-only but NOT tracked — re-enqueue
+                  self._addPending(mt.id);
+                  self._backupTask(mt);
+                  console.log('[Store] syncDown: re-enqueued local-only task', mt.id);
+                }
+              });
+
               var pending     = self._getPending();
               var stillPending = [];
               pending.forEach(function (pid) {
@@ -2156,7 +2171,7 @@ var Store = {
     }
     console.log('[Store] _verifySave: checking Sheet for', pending.length, 'pending task(s)…');
     setTimeout(function () {
-      fetch(SCRIPT_URL + '?action=get', { cache: 'no-store' })
+      fetch(SCRIPT_URL + '?action=get&_=' + Date.now(), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (!res.ok || !res.data) {
@@ -2205,13 +2220,20 @@ var Store = {
     fetch(url, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.ok) {
-          console.log('[Store] _upsertViaGet: saved task', task.id, d.isNew ? '(new)' : '(updated)');
+        if (d.ok && d.upserted) {
+          // Code_v15 confirmed the upsert — task is now in the Sheet
+          console.log('[Store] _upsertViaGet: confirmed by Sheet', task.id, d.isNew ? '(new)' : '(updated)');
           self._removeBackup(task.id);
           self._removePending(task.id);
           self._setStatus('ok');
-        } else {
-          console.warn('[Store] _upsertViaGet failed for', task.id, ':', d.error);
+          toast('Task saved to Google Sheets \u2713 — other browsers will see it within 30 s.', 'success');
+        } else if (d.ok && d.data !== undefined) {
+          // Old script (Code_v14) still deployed — doGet returned task list, NOT an upsert.
+          // Task is NOT saved to Sheet. Keep backup+pending so retry can fire later.
+          console.warn('[Store] _upsertViaGet: old Apps Script detected — Code_v15.gs not yet deployed. Task kept in retry queue.');
+          toast('Apps Script needs updating (Code_v15.gs). Task saved locally — will sync once script is deployed.', 'error');
+        } else if (!d.ok) {
+          console.warn('[Store] _upsertViaGet server error for', task.id, ':', d.error);
         }
       })
       .catch(function (e) {
@@ -2241,13 +2263,16 @@ var Store = {
         .then(function (r) { return r.json(); })
         .then(function (d) {
           done++;
-          if (d.ok) {
+          if (d.ok && d.upserted) {
             success++;
             self._removeBackup(pid);
             self._removePending(pid);
-            console.log('[Store] _fallbackUpsert: saved task', pid);
+            console.log('[Store] _fallbackUpsert: confirmed task', pid);
+          } else if (d.ok && d.data !== undefined) {
+            // Old Code_v14 still deployed — false positive, keep task in queue
+            console.warn('[Store] _fallbackUpsert: old Apps Script — Code_v15.gs not deployed. Task', pid, 'kept in queue.');
           } else {
-            console.warn('[Store] _fallbackUpsert failed for', pid, ':', d.error);
+            console.warn('[Store] _fallbackUpsert server error for', pid, ':', d.error);
           }
           if (done === pending.length) {
             if (success > 0) {
@@ -2255,7 +2280,7 @@ var Store = {
               toast(success + ' task(s) synced to Google Sheets.', 'success');
             } else {
               self._setStatus('error');
-              toast('Could not save to Google Sheets. Data stored locally — will retry on next refresh.', 'error');
+              toast('Could not save to Google Sheets — update Apps Script to Code_v15.gs, then refresh.', 'error');
             }
           }
         })
@@ -3201,7 +3226,7 @@ External.submitUpdate=function(){
   Store.syncDown(function () {
     document.getElementById('loadingOverlay').style.display = 'none';
   });
-  // Auto-refresh every 90 seconds so contractors always see the latest tasks
+  // Auto-refresh every 30 seconds so cross-browser sync stays current
   setInterval(function () {
     Store.syncDown(function (ok) {
       var role = typeof _currentUser !== 'undefined' && _currentUser.role;
@@ -3212,7 +3237,7 @@ External.submitUpdate=function(){
         Admin._updateStats(Store.get());
       }
     });
-  }, 90000);
+  }, 30000);
 })();
 
 document.addEventListener('keydown',function(e){
