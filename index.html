@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v41</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v42</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -1895,7 +1895,7 @@ var SEED_TASKS = [
 var SCRIPT_URL = (function(){
   var saved = localStorage.getItem('tap_si_script_url');
   return (saved && saved.includes('/exec')) ? saved
-    : 'https://script.google.com/macros/s/AKfycbxIj1Txfr_MsqM7N-HzgrpwcCGxFxUQYcZcZEgkdWr_j7N0hODen5hhDNYo8Pi10zGVBQ/exec';
+    : 'https://script.google.com/macros/s/AKfycbwTuFfK1ogA2NUmSHAsNBZCaMcJS8U6k9aXWygnk6SW57S1D9AWrI5kdVQenGb0hGYY/exec';
 })();
 
 // ── ImgBB photo hosting ────────────────────────────────────────────────
