@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v39</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v40</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -461,6 +461,31 @@ textarea{resize:vertical;min-height:88px}
         <p style="margin:0 0 10px;font-size:.85rem;color:#555;">Task data syncs via Google Apps Script. Connection status:</p>
         <button class="btn" onclick="Admin.testConn()" style="font-size:.85rem;">Test Connection</button>
         <div id="connStatus" style="margin-top:10px;font-size:.82rem;"></div>
+      </div>
+
+      <div class="card" style="max-width:560px;padding:24px 28px;margin-top:16px;border:2px solid #BFDBFE;background:#EFF6FF;">
+        <h3 style="margin:0 0 4px;font-size:1rem;font-weight:700;color:#1e40af;">&#128279; Update Apps Script URL</h3>
+        <p style="margin:0 0 14px;font-size:.85rem;color:#374151;line-height:1.55;">
+          If you created a <strong>new deployment</strong> in Apps Script, paste the new
+          <code style="background:#dbeafe;padding:1px 5px;border-radius:4px;">/exec</code> URL here
+          and click <strong>Test &amp; Save</strong>. The dashboard will use it immediately —
+          no file editing or GitHub push needed.
+        </p>
+        <label style="display:block;font-size:.85rem;font-weight:600;margin-bottom:6px;color:#1e40af;">New Web App /exec URL</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input id="scriptUrlInput" type="text"
+            placeholder="https://script.google.com/macros/s/.../exec"
+            style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid #93c5fd;border-radius:6px;font-size:.85rem;font-family:inherit;background:#fff;">
+          <button class="btn btn-p" onclick="Admin.saveScriptUrl()" style="white-space:nowrap;">Test &amp; Save</button>
+        </div>
+        <div id="scriptUrlStatus" style="margin-top:10px;font-size:.82rem;"></div>
+        <div style="margin-top:14px;font-size:.8rem;color:#4b5563;background:#dbeafe;border-radius:6px;padding:10px 14px;line-height:1.6;">
+          <strong>How to get a new URL:</strong><br>
+          1. Open your Google Sheet &rarr; <strong>Extensions &rarr; Apps Script</strong><br>
+          2. Paste <code>Code_v16.gs</code> contents &rarr; <strong>Ctrl+S</strong> to save<br>
+          3. Click <strong>Deploy &rarr; New deployment</strong> &rarr; Type: Web app &rarr; Execute as: Me &rarr; Who has access: Anyone<br>
+          4. Click <strong>Deploy</strong> &rarr; copy the new <code>/exec</code> URL &rarr; paste above
+        </div>
       </div>
     </section>
 
@@ -1867,7 +1892,11 @@ var SEED_TASKS = [
 // Get this URL from:
 //   Google Sheet → Extensions → Apps Script
 //   → Deploy → Manage deployments → copy the  /exec  URL
-var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxIj1Txfr_MsqM7N-HzgrpwcCGxFxUQYcZcZEgkdWr_j7N0hODen5hhDNYo8Pi10zGVBQ/exec';
+var SCRIPT_URL = (function(){
+  var saved = localStorage.getItem('tap_si_script_url');
+  return (saved && saved.includes('/exec')) ? saved
+    : 'https://script.google.com/macros/s/AKfycbxIj1Txfr_MsqM7N-HzgrpwcCGxFxUQYcZcZEgkdWr_j7N0hODen5hhDNYo8Pi10zGVBQ/exec';
+})();
 
 // ── ImgBB photo hosting ────────────────────────────────────────────────
 // ImgBB is a free image host.  Photos upload here and come back as a
@@ -2933,6 +2962,42 @@ var Admin={
     } else {
       status.innerHTML='<span style="color:#c05621;">&#9888; No key set &mdash; photos cannot be uploaded until you add a key.</span>';
     }
+    // Populate script URL field with current value
+    var su = document.getElementById('scriptUrlInput');
+    if (su) su.value = SCRIPT_URL;
+    var suSt = document.getElementById('scriptUrlStatus');
+    if (suSt) suSt.innerHTML = '<span style="color:#555;">Current URL: <code style="font-size:.8rem;">' + SCRIPT_URL.slice(0,60) + '&hellip;</code></span>';
+  },
+
+  saveScriptUrl: function() {
+    var val = (document.getElementById('scriptUrlInput').value || '').trim();
+    var el  = document.getElementById('scriptUrlStatus');
+    if (!val) { toast('Paste a URL first.', 'error'); return; }
+    if (!val.includes('script.google.com') || !val.includes('/exec')) {
+      toast('That does not look like an Apps Script /exec URL.', 'error'); return;
+    }
+    if (el) el.innerHTML = '<span style="color:#555;">Testing&hellip;</span>';
+    fetch(val + '?action=ping', { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) {
+          SCRIPT_URL = val;
+          localStorage.setItem('tap_si_script_url', val);
+          var ver = d.scriptVersion || 'unknown';
+          var isNew = ver !== 'Code_v14';
+          var color = isNew ? '#276749' : '#c05621';
+          var msg = isNew
+            ? '&#10003; Connected &mdash; ' + ver + '. URL saved! New tasks will now sync correctly.'
+            : '&#9888; Connected but still running Code_v14. The upsert handler is missing. Make sure you saved Code_v16.gs and selected <strong>New version</strong> when deploying.';
+          if (el) el.innerHTML = '<span style="color:' + color + ';">' + msg + '</span>';
+          if (isNew) toast('Script URL updated — sync is now working.', 'success');
+        } else {
+          if (el) el.innerHTML = '<span style="color:#c05621;">&#9888; Script error: ' + (d.error || 'unknown') + '</span>';
+        }
+      })
+      .catch(function(e){
+        if (el) el.innerHTML = '<span style="color:#c05621;">&#9888; Could not connect: ' + e.message + '. Check the URL is correct.</span>';
+      });
   },
 
   saveImgbbKey:function(){
@@ -2946,15 +3011,19 @@ var Admin={
 
   testConn:function(){
     var el=document.getElementById('connStatus');
-    if(el)el.innerHTML='Testing\u2026';
+    if(el)el.innerHTML='Testing&hellip;';
     if(!SCRIPT_URL||SCRIPT_URL==='YOUR_APPS_SCRIPT_URL'){
       if(el)el.innerHTML='<span style="color:#c05621;">No Apps Script URL configured.</span>';
       return;
     }
-    fetch(SCRIPT_URL+'?action=ping')
+    fetch(SCRIPT_URL+'?action=ping',{cache:'no-store'})
       .then(function(r){return r.json();})
       .then(function(d){
-        if(el)el.innerHTML='<span style="color:#276749;">&#10003; Connected &mdash; '+(d.scriptVersion||'version unknown')+'</span>';
+        var ver=d.scriptVersion||'unknown';
+        var isOld=(ver==='Code_v14'||!d.scriptVersion);
+        if(el)el.innerHTML=isOld
+          ?'<span style="color:#c05621;">&#9888; Connected but running old Code_v14 &mdash; new tasks will not sync. Scroll down and paste your new deployment URL in the <strong>Update Apps Script URL</strong> box below.</span>'
+          :'<span style="color:#276749;">&#10003; Connected &mdash; '+ver+'. Sync is working correctly.</span>';
       })
       .catch(function(e){
         if(el)el.innerHTML='<span style="color:#c05621;">Connection failed: '+e.message+'</span>';
