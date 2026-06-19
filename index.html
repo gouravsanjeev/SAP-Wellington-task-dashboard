@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
 <title>Site Inspection Task Dashboard | SAP</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
@@ -244,6 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v36</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -1884,36 +1888,58 @@ var IMGBB_URL = 'https://api.imgbb.com/1/upload';
 var Store = {
   KEY: 'tap_si_v2',
 
-  // ─── READ (synchronous, from localStorage cache) ──────────────────
+  // ─── READ ────────────────────────────────────────────────────────
   get: function () {
     try { return JSON.parse(localStorage.getItem(this.KEY) || 'null') || []; }
     catch (e) { return []; }
   },
 
-  // ─── WRITE (localStorage first, then async push to Sheets) ────────
+  // ─── WRITE (localStorage first, then async push to Sheet) ────────
   save: function (tasks) {
     localStorage.setItem(this.KEY, JSON.stringify(tasks));
-    // Protect local data for 60 seconds after every save.
-    // Google Sheets has a server-side write propagation delay — even after
-    // _syncUp returns {ok:true}, the next GET can still return stale data.
-    // Storing an expiry time (not a start time) means syncDown will never
-    // overwrite localStorage within the 60-second window, regardless of
-    // whether _syncUp has finished or not.
-    localStorage.setItem(this.KEY + '_dirty', (Date.now() + 60000).toString());
     this._syncUp(tasks);
   },
-  add:    function (t)       { var a = this.get(); a.unshift(t); this.save(a); this._addPending(t.id); },
-  update: function (id, upd) { this.save(this.get().map(function (t) { return t.id === id ? Object.assign({}, t, upd, {updatedAt: new Date().toISOString()}) : t; })); },
-  del:    function (id)      { this.save(this.get().filter(function (t) { return t.id !== id; })); this._removePending(id); },
-  byId:   function (id)      { return this.get().find(function (t) { return t.id === id; }) || null; },
 
-  // ─── PENDING-ADDS: track locally-added tasks until Sheet confirms them ──
+  add: function (t) {
+    var a = this.get(); a.unshift(t); this.save(a);
+    this._addPending(t.id);
+    this._backupTask(t);   // Layer 2: full-object backup cache
+  },
+
+  update: function (id, upd) {
+    this.save(this.get().map(function (t) {
+      return t.id === id ? Object.assign({}, t, upd, {updatedAt: new Date().toISOString()}) : t;
+    }));
+  },
+
+  del: function (id) {
+    this.save(this.get().filter(function (t) { return t.id !== id; }));
+    this._removePending(id);
+    this._removeBackup(id);
+    this._trackDeleted(id);  // Layer 2: remember this deletion so it doesn't bounce back
+  },
+
+  byId: function (id) { return this.get().find(function (t) { return t.id === id; }) || null; },
+
+  // ─── PENDING-ADDS (track ID until Sheet confirms) ─────────────────
   _pk: function () { return this.KEY + '_pending'; },
   _addPending:    function (id) { var p=this._getPending(); if(p.indexOf(id)<0){p.push(id);} localStorage.setItem(this._pk(),JSON.stringify(p)); },
   _removePending: function (id) { localStorage.setItem(this._pk(),JSON.stringify(this._getPending().filter(function(x){return x!==id;}))); },
   _getPending:    function ()   { try{return JSON.parse(localStorage.getItem(this._pk())||'[]');}catch(e){return[];} },
 
-  // ─── SEED from embedded data (first open only) ────────────────────
+  // ─── FULL-TASK BACKUP CACHE (recover even if main key is lost) ────
+  _bkKey: function () { return this.KEY + '_bk'; },
+  _backupTask:    function (t)  { var bk=this._getAllBackups(); bk[t.id]=t; localStorage.setItem(this._bkKey(),JSON.stringify(bk)); },
+  _removeBackup:  function (id) { var bk=this._getAllBackups(); delete bk[id]; localStorage.setItem(this._bkKey(),JSON.stringify(bk)); },
+  _getAllBackups:  function ()   { try{return JSON.parse(localStorage.getItem(this._bkKey())||'{}');}catch(e){return{};} },
+  _getBackup:     function (id) { return this._getAllBackups()[id]||null; },
+
+  // ─── DELETION TRACKING (prevent deleted tasks bouncing back) ──────
+  _dkKey: function () { return this.KEY + '_del'; },
+  _trackDeleted: function (id) { var d=this._getDeleted(); if(d.indexOf(id)<0){d.push(id);} localStorage.setItem(this._dkKey(),JSON.stringify(d)); },
+  _getDeleted:   function ()   { try{return JSON.parse(localStorage.getItem(this._dkKey())||'[]');}catch(e){return[];} },
+
+  // ─── SEED (first open only) ───────────────────────────────────────
   _seed: function () {
     if (!localStorage.getItem(this.KEY)) {
       var tasks = SEED_TASKS.map(function (t) {
@@ -1923,7 +1949,7 @@ var Store = {
     }
   },
 
-  // ─── MIGRATE: backfill createdAt for tasks written before it existed ──
+  // ─── MIGRATE: backfill createdAt for pre-v32 tasks ───────────────
   _migrate: function () {
     var tasks = this.get();
     if (!tasks.length) return;
@@ -1937,15 +1963,13 @@ var Store = {
       }
       return t;
     });
-    // Write directly (no _syncUp here — syncDown will push updated data)
     if (changed) localStorage.setItem(this.KEY, JSON.stringify(migrated));
   },
 
-  // ─── PULL latest data from Sheets ─────────────────────────────────
+  // ─── PULL latest from Sheet ───────────────────────────────────────
   syncDown: function (cb) {
     var self = this;
 
-    // No URL configured yet — use embedded seed data
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
       self._seed();
       self._setStatus('ok');
@@ -1966,88 +1990,97 @@ var Store = {
             var remote = JSON.parse(res.data);
             if (Array.isArray(remote) && remote.length) {
 
-              // ── Dirty-window guard ───────────────────────────────────────
-              // save() stamps an expiry time 60 seconds in the future.
-              // While we are inside that window, do NOT overwrite local data —
-              // even if _syncUp already returned {ok:true}, the Sheet may not
-              // yet serve the new data on a GET (propagation delay).
-              var dirtyUntil = parseInt(localStorage.getItem(self.KEY + '_dirty') || '0');
-              var isDirty    = Date.now() < dirtyUntil;
+              // ════════════════════════════════════════════════════════
+              // MERGE: LOCAL IS THE STRICT BASE
+              // ── Every local task is preserved.
+              // ── Remote updates operational fields for tasks we share.
+              // ── Remote-only tasks are added (new from another device)
+              //    UNLESS we locally deleted them.
+              // ════════════════════════════════════════════════════════
+              var local   = self.get();
+              var deleted = self._getDeleted();
 
-              if (isDirty) {
-                // Still within protection window — keep local, re-push to Sheet
-                console.log('[Store] syncDown: 60s dirty window active — keeping local data.');
-                self._syncUp(self.get());
-              } else {
-                // Window expired — merge Sheet data with local, never drop photos or comments
-                var local = self.get();
-                var merged = remote.map(function(rt){
-                  var lt = local.find(function(t){ return t.id===rt.id; });
-                  if(!lt) return rt;
-                  // Keep whichever side has more items — protects against _syncUp delay/failure
-                  // Also preserve createdAt/updatedAt from local (Sheet may not store them)
-                  return Object.assign({}, rt, {
-                    refPhotos:      (lt.refPhotos||[]).length      > (rt.refPhotos||[]).length      ? lt.refPhotos      : rt.refPhotos,
-                    evidencePhotos: (lt.evidencePhotos||[]).length > (rt.evidencePhotos||[]).length ? lt.evidencePhotos : rt.evidencePhotos,
-                    comments:       (lt.comments||[]).length       > (rt.comments||[]).length       ? lt.comments       : rt.comments,
-                    createdAt:      lt.createdAt  || rt.createdAt  || null,
-                    updatedAt:      (lt.updatedAt||'') > (rt.updatedAt||'') ? lt.updatedAt : (rt.updatedAt || lt.updatedAt || null)
-                  });
+              // Step 1 – start with all local tasks, updating each with remote data
+              var merged = local.map(function (lt) {
+                var rt = remote.find(function (t) { return t.id === lt.id; });
+                if (!rt) return lt; // local-only: keep as-is
+                return Object.assign({}, rt, {
+                  refPhotos:      (lt.refPhotos||[]).length      > (rt.refPhotos||[]).length      ? lt.refPhotos      : rt.refPhotos,
+                  evidencePhotos: (lt.evidencePhotos||[]).length > (rt.evidencePhotos||[]).length ? lt.evidencePhotos : rt.evidencePhotos,
+                  comments:       (lt.comments||[]).length       > (rt.comments||[]).length       ? lt.comments       : rt.comments,
+                  createdAt:      lt.createdAt  || rt.createdAt  || null,
+                  updatedAt:      (lt.updatedAt||'') > (rt.updatedAt||'') ? lt.updatedAt : (rt.updatedAt || lt.updatedAt || null)
                 });
-                // Also preserve local-only tasks (newly added, not yet synced to Sheet)
-                var hasLocalOnly = false;
-                local.forEach(function(lt){
-                  if(!remote.find(function(rt){ return rt.id===lt.id; })) {
-                    merged.unshift(lt);
-                    hasLocalOnly = true;
-                  }
-                });
+              });
 
-                // ── Pending-adds safety net ─────────────────────────────────
-                // Every task added locally is tracked in _pending until the
-                // Sheet confirms it.  Even if the merge missed it, we re-add it.
-                var pending = self._getPending();
-                var stillPending = [];
-                pending.forEach(function(pid){
-                  var inRemote = remote.find(function(rt){ return rt.id===pid; });
-                  if(inRemote){
-                    // Sheet confirmed — nothing to do, task is already in merged
-                  } else {
-                    var localTask = local.find(function(lt){ return lt.id===pid; });
-                    if(localTask){
-                      if(!merged.find(function(m){ return m.id===pid; })) merged.unshift(localTask);
-                      stillPending.push(pid);   // still not on Sheet — keep retrying
+              // Step 2 – add remote-only tasks (from another device), skip deleted
+              var deletedInRemote = false;
+              remote.forEach(function (rt) {
+                if (local.find(function (lt) { return lt.id === rt.id; })) return; // already in merged
+                if (deleted.indexOf(rt.id) >= 0) {
+                  deletedInRemote = true; // we need to re-push so Sheet drops this task
+                  return;
+                }
+                merged.push(rt); // genuine new task from another device
+              });
+
+              // Step 3 – pending safety net: recover any task not confirmed by Sheet,
+              //           using full-object backup cache as last resort
+              var pending     = self._getPending();
+              var stillPending = [];
+              pending.forEach(function (pid) {
+                var inRemote = !!remote.find(function (rt) { return rt.id === pid; });
+                if (inRemote) {
+                  // Sheet confirmed — clear the full-object backup for this task.
+                  // The pending list is cleaned up by the setItem below (stillPending
+                  // will not contain pid, so it's effectively removed).
+                  self._removeBackup(pid);
+                } else {
+                  // Not in Sheet yet — ensure it's in merged
+                  if (!merged.find(function (m) { return m.id === pid; })) {
+                    var bkTask = self._getBackup(pid);
+                    if (bkTask) {
+                      merged.unshift(bkTask);
+                      console.log('[Store] syncDown: recovered task from backup cache:', pid);
                     }
                   }
-                });
-                localStorage.setItem(self._pk(), JSON.stringify(stillPending));
-
-                if(stillPending.length > 0 || hasLocalOnly){
-                  // Push the full merged list (including local-only tasks) to Sheet
-                  self.save(merged);
-                  console.log('[Store] syncDown: '+stillPending.length+' pending + '+
-                    (hasLocalOnly?'local-only':0)+' tasks — re-pushing to Sheet.');
-                } else {
-                  localStorage.setItem(self.KEY, JSON.stringify(merged));
-                  console.log('[Store] syncDown: merged Sheet + local — all confirmed.');
+                  stillPending.push(pid);
                 }
+              });
+              localStorage.setItem(self._pk(), JSON.stringify(stillPending));
+
+              // Step 4 – decide whether to push back to Sheet
+              var anyLocalOnly = merged.some(function (m) {
+                return !remote.find(function (rt) { return rt.id === m.id; });
+              });
+
+              if (stillPending.length > 0 || anyLocalOnly || deletedInRemote) {
+                // Push merged (includes all local tasks, omits deleted) back to Sheet
+                self.save(merged);
+                console.log('[Store] syncDown: ' + stillPending.length +
+                  ' pending, anyLocalOnly=' + anyLocalOnly +
+                  ', deletedInRemote=' + deletedInRemote + ' — re-pushing to Sheet.');
+              } else {
+                // Fully in sync — just update localStorage, no need to push
+                localStorage.setItem(self.KEY, JSON.stringify(merged));
+                console.log('[Store] syncDown: fully synced — ' + merged.length + ' tasks.');
               }
 
             } else {
-              // Sheet is empty — seed local first, then push everything up
+              // Sheet empty — seed, then push everything up
               self._seed();
               var local = self.get();
               if (local.length) {
-                console.log('[Store] Sheet empty — pushing ' + local.length + ' tasks to Sheet (one-time migration)');
+                console.log('[Store] Sheet empty — pushing ' + local.length + ' tasks (one-time migration)');
                 self._syncUp(local);
-                toast('Syncing your existing tasks to Google Sheets\u2026', 'info');
+                toast('Syncing your existing tasks to Google Sheets…', 'info');
               }
             }
           } catch (e) { console.error('[Store] parse error:', e); }
         } else {
           self._seed();
         }
-        self._seed();          // no-op if data already exists
+        self._seed();
         self._setStatus('ok');
         if (cb) cb(true);
       })
@@ -2059,31 +2092,48 @@ var Store = {
       });
   },
 
-  // ─── PUSH localStorage to Sheets (fire & forget) ──────────────────
-  _syncUp: function (tasks) {
+  // ─── PUSH to Sheet with automatic retry ──────────────────────────
+  _syncUp: function (tasks, _attempt) {
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') return;
-    var self = this;
+    var self    = this;
+    var attempt = _attempt || 0;
     var payload = JSON.stringify({ action: 'save', data: JSON.stringify(tasks) });
     fetch(SCRIPT_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'text/plain' },
       body:    payload
     })
-    .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP '+r.status); })
-    .then(function(d){
-      if(!d.ok) console.warn('[Store] _syncUp — Sheet returned error:', d.error);
-      // Do NOT clear the dirty flag here. The 60-second expiry window in
-      // save() is the only thing that should end the protection period.
-      // Clearing it here would re-expose local data to stale Sheet overwrites
-      // caused by Google Sheets write-propagation delays.
+    .then(function (r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+    .then(function (d) {
+      if (d.ok) {
+        self._setStatus('ok');
+      } else {
+        console.warn('[Store] _syncUp — Sheet error:', d.error);
+        self._scheduleRetry(tasks, attempt);
+      }
     })
-    .catch(function(e){ console.error('[Store] _syncUp failed:', e); });
+    .catch(function (e) {
+      console.error('[Store] _syncUp failed (attempt ' + (attempt + 1) + '):', e);
+      self._scheduleRetry(tasks, attempt);
+    });
+  },
+
+  _scheduleRetry: function (tasks, attempt) {
+    var self    = this;
+    var delays  = [5000, 15000, 30000];
+    if (attempt < delays.length) {
+      console.log('[Store] Retrying _syncUp in ' + (delays[attempt]/1000) + 's…');
+      setTimeout(function () { self._syncUp(tasks, attempt + 1); }, delays[attempt]);
+    } else {
+      self._setStatus('error');
+      toast('⚠ Could not reach Google Sheets after 3 retries. Data is saved locally.', 'error');
+    }
   },
 
   // ─── MANUAL REFRESH ───────────────────────────────────────────────
   manualRefresh: function () {
     var loMsg = document.getElementById('loMsg');
-    if (loMsg) loMsg.textContent = 'Refreshing data\u2026';
+    if (loMsg) loMsg.textContent = 'Refreshing data…';
     document.getElementById('loadingOverlay').style.display = 'flex';
     Store.syncDown(function () {
       document.getElementById('loadingOverlay').style.display = 'none';
@@ -2094,7 +2144,7 @@ var Store = {
     });
   },
 
-  // ─── SCRIPT CONNECTION TEST ───────────────────────────────
+  // ─── PING ────────────────────────────────────────────────────────
   testPing: function (cb) {
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
       if (cb) cb(false, 'No Script URL configured.');
@@ -2110,14 +2160,14 @@ var Store = {
       });
   },
 
-  // ─── STATUS INDICATOR in header ───────────────────────────────────
+  // ─── SYNC STATUS INDICATOR ───────────────────────────────────────
   _setStatus: function (state) {
     var el = document.getElementById('syncStatus');
     if (!el) return;
     var MAP = {
-      syncing: { html: '&#8635;&nbsp;Syncing\u2026', color: '#0070F2' },
-      ok:      { html: '&#10003;&nbsp;Synced',       color: '#1a7f3f' },
-      error:   { html: '&#9888;&nbsp;Sync error &mdash; using local data', color: '#c0392b' }
+      syncing: { html: '&#8635;&nbsp;Syncing…', color: 'rgba(255,255,255,.7)' },
+      ok:      { html: '&#10003;&nbsp;Synced',  color: '#4CD964' },
+      error:   { html: '&#9888;&nbsp;Sync error — local only', color: '#FF6961' }
     };
     var s = MAP[state] || MAP.ok;
     el.innerHTML = s.html;
