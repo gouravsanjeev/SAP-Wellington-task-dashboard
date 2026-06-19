@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v37</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v38</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -1901,9 +1901,10 @@ var Store = {
   },
 
   add: function (t) {
-    var a = this.get(); a.unshift(t); this.save(a);
+    var a = this.get(); a.unshift(t); this.save(a); // save() → _syncUp (POST, may redirect)
     this._addPending(t.id);
-    this._backupTask(t);   // Layer 2: full-object backup cache
+    this._backupTask(t);
+    this._upsertViaGet(t); // fire GET upsert in parallel — immune to POST redirect
   },
 
   update: function (id, upd) {
@@ -2189,10 +2190,81 @@ var Store = {
       console.log('[Store] Retrying _syncUp in ' + (delays[attempt] / 1000) + 's (attempt ' + (attempt + 2) + '/4)…');
       setTimeout(function () { self._syncUp(tasks, attempt + 1); }, delays[attempt]);
     } else {
-      self._setStatus('error');
-      toast('Could not save to Google Sheets after 4 attempts. Data is stored locally and will retry on next refresh.', 'error');
-      console.error('[Store] All _syncUp retries exhausted. Pending tasks:', self._getPending());
+      // POST exhausted — run GET upsert for every pending new task
+      self._fallbackUpsert();
     }
+  },
+
+  // ─── GET UPSERT: save a single task via GET (bypasses POST redirect) ─
+  // Fires immediately on add() in parallel with the POST, and again as
+  // a last resort after all POST retries fail.
+  _upsertViaGet: function (task) {
+    if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') return;
+    var self = this;
+    var url  = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
+    fetch(url, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) {
+          console.log('[Store] _upsertViaGet: saved task', task.id, d.isNew ? '(new)' : '(updated)');
+          self._removeBackup(task.id);
+          self._removePending(task.id);
+          self._setStatus('ok');
+        } else {
+          console.warn('[Store] _upsertViaGet failed for', task.id, ':', d.error);
+        }
+      })
+      .catch(function (e) {
+        console.warn('[Store] _upsertViaGet network error:', e);
+      });
+  },
+
+  // ─── FALLBACK: GET upsert for all remaining pending tasks ────────────
+  _fallbackUpsert: function () {
+    var self    = this;
+    var pending = self._getPending();
+    if (!pending.length) {
+      self._setStatus('ok');
+      return;
+    }
+    console.log('[Store] _fallbackUpsert: POST failed — trying GET upsert for', pending.length, 'task(s)');
+    var done = 0; var success = 0;
+    pending.forEach(function (pid) {
+      var task = self._getBackup(pid);
+      if (!task) {
+        done++;
+        if (done === pending.length && success === 0) self._setStatus('error');
+        return;
+      }
+      var url = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
+      fetch(url, { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          done++;
+          if (d.ok) {
+            success++;
+            self._removeBackup(pid);
+            self._removePending(pid);
+            console.log('[Store] _fallbackUpsert: saved task', pid);
+          } else {
+            console.warn('[Store] _fallbackUpsert failed for', pid, ':', d.error);
+          }
+          if (done === pending.length) {
+            if (success > 0) {
+              self._setStatus('ok');
+              toast(success + ' task(s) synced to Google Sheets.', 'success');
+            } else {
+              self._setStatus('error');
+              toast('Could not save to Google Sheets. Data stored locally — will retry on next refresh.', 'error');
+            }
+          }
+        })
+        .catch(function (e) {
+          done++;
+          console.error('[Store] _fallbackUpsert network error for', pid, ':', e);
+          if (done === pending.length) self._setStatus('error');
+        });
+    });
   },
 
   // ─── MANUAL REFRESH ───────────────────────────────────────────────
