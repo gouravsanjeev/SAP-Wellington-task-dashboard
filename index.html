@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v40</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v41</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -2021,26 +2021,47 @@ var Store = {
             if (Array.isArray(remote) && remote.length) {
 
               // ════════════════════════════════════════════════════════
-              // MERGE: LOCAL IS THE STRICT BASE
-              // ── Every local task is preserved.
-              // ── Remote updates operational fields for tasks we share.
+              // MERGE: TIMESTAMP-BASED — NEWER VERSION WINS
+              // ── Both local and remote are considered.
+              // ── For each shared task: compare updatedAt (fallback to
+              //    createdAt). Whichever is more recent wins all
+              //    operational fields (status, title, assignee, etc.).
+              // ── Arrays (photos, comments) always keep the longer list.
+              // ── Local-only tasks are kept (new tasks added offline).
               // ── Remote-only tasks are added (new from another device)
               //    UNLESS we locally deleted them.
               // ════════════════════════════════════════════════════════
               var local   = self.get();
               var deleted = self._getDeleted();
 
-              // Step 1 – start with all local tasks, updating each with remote data
+              // Step 1 – merge shared tasks using timestamp comparison
               var merged = local.map(function (lt) {
                 var rt = remote.find(function (t) { return t.id === lt.id; });
                 if (!rt) return lt; // local-only: keep as-is
-                return Object.assign({}, rt, {
+
+                // Timestamps — fall back to createdAt if updatedAt absent
+                var ltTime = lt.updatedAt || lt.createdAt || '';
+                var rtTime = rt.updatedAt || rt.createdAt || '';
+                var localNewer = ltTime > rtTime;
+
+                // Arrays: always keep the longer list (more data = better)
+                var photos = {
                   refPhotos:      (lt.refPhotos||[]).length      > (rt.refPhotos||[]).length      ? lt.refPhotos      : rt.refPhotos,
                   evidencePhotos: (lt.evidencePhotos||[]).length > (rt.evidencePhotos||[]).length ? lt.evidencePhotos : rt.evidencePhotos,
-                  comments:       (lt.comments||[]).length       > (rt.comments||[]).length       ? lt.comments       : rt.comments,
-                  createdAt:      lt.createdAt  || rt.createdAt  || null,
-                  updatedAt:      (lt.updatedAt||'') > (rt.updatedAt||'') ? lt.updatedAt : (rt.updatedAt || lt.updatedAt || null)
-                });
+                  comments:       (lt.comments||[]).length       > (rt.comments||[]).length       ? lt.comments       : rt.comments
+                };
+
+                if (localNewer) {
+                  // Local edited more recently — keep local's operational fields
+                  console.log('[Store] merge: local newer for', lt.id, ltTime, '>', rtTime);
+                  return Object.assign({}, rt, lt, photos);
+                } else {
+                  // Remote is same age or newer — accept remote's operational fields
+                  return Object.assign({}, rt, photos, {
+                    createdAt: lt.createdAt || rt.createdAt || null,
+                    updatedAt: rt.updatedAt || lt.updatedAt || null
+                  });
+                }
               });
 
               // Step 2 – add remote-only tasks (from another device), skip deleted
@@ -2270,54 +2291,49 @@ var Store = {
       });
   },
 
-  // ─── FALLBACK: GET upsert for all remaining pending tasks ────────────
+  // ─── FALLBACK: GET upsert for all remaining pending tasks (serialised) ─
+  // Tasks are written ONE AT A TIME to avoid race conditions where
+  // parallel writes to the Sheet overwrite each other.
   _fallbackUpsert: function () {
     var self    = this;
     var pending = self._getPending();
-    if (!pending.length) {
-      self._setStatus('ok');
-      return;
-    }
-    console.log('[Store] _fallbackUpsert: POST failed — trying GET upsert for', pending.length, 'task(s)');
-    var done = 0; var success = 0;
+    if (!pending.length) { self._setStatus('ok'); return; }
+    console.log('[Store] _fallbackUpsert: serialising', pending.length, 'upsert(s)');
+
+    var success = 0;
+    // Chain promises so each write completes before the next starts
+    var chain = Promise.resolve();
     pending.forEach(function (pid) {
-      var task = self._getBackup(pid);
-      if (!task) {
-        done++;
-        if (done === pending.length && success === 0) self._setStatus('error');
-        return;
-      }
-      var url = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
-      fetch(url, { cache: 'no-store' })
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-          done++;
-          if (d.ok && d.upserted) {
-            success++;
-            self._removeBackup(pid);
-            self._removePending(pid);
-            console.log('[Store] _fallbackUpsert: confirmed task', pid);
-          } else if (d.ok && d.data !== undefined) {
-            // Old Code_v14 still deployed — false positive, keep task in queue
-            console.warn('[Store] _fallbackUpsert: old Apps Script — Code_v15.gs not deployed. Task', pid, 'kept in queue.');
-          } else {
-            console.warn('[Store] _fallbackUpsert server error for', pid, ':', d.error);
-          }
-          if (done === pending.length) {
-            if (success > 0) {
-              self._setStatus('ok');
-              toast(success + ' task(s) synced to Google Sheets.', 'success');
+      chain = chain.then(function () {
+        var task = self._getBackup(pid);
+        if (!task) { return Promise.resolve(); }
+        var url = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
+        return fetch(url, { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d.ok && d.upserted) {
+              success++;
+              self._removeBackup(pid);
+              self._removePending(pid);
+              console.log('[Store] _fallbackUpsert: saved', pid);
+            } else if (d.ok && d.data !== undefined) {
+              console.warn('[Store] _fallbackUpsert: old script still running for', pid);
             } else {
-              self._setStatus('error');
-              toast('Could not save to Google Sheets — update Apps Script to Code_v15.gs, then refresh.', 'error');
+              console.warn('[Store] _fallbackUpsert error for', pid, d.error);
             }
-          }
-        })
-        .catch(function (e) {
-          done++;
-          console.error('[Store] _fallbackUpsert network error for', pid, ':', e);
-          if (done === pending.length) self._setStatus('error');
-        });
+          })
+          .catch(function (e) { console.error('[Store] _fallbackUpsert network error', pid, e); });
+      });
+    });
+
+    chain.then(function () {
+      if (success > 0) {
+        self._setStatus('ok');
+        toast(success + ' task(s) synced to Google Sheets.', 'success');
+      } else {
+        self._setStatus('error');
+        toast('Could not save to Google Sheets — check Apps Script URL in Settings.', 'error');
+      }
     });
   },
 
