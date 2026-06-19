@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v36</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v37</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -2092,12 +2092,27 @@ var Store = {
       });
   },
 
-  // ─── PUSH to Sheet with automatic retry ──────────────────────────
+  // ─── PUSH to Sheet with redirect-detection + verification ────────
+  //
+  // Root cause of cross-browser loss:
+  //   Google Apps Script /exec redirects POST → 302 → browser re-sends
+  //   as GET (per HTTP spec).  doGet runs instead of doPost.  The client
+  //   sees {ok:true} and thinks the save worked — but nothing was written.
+  //
+  // Two-layer defence:
+  //   1. Redirect detection: doGet always returns {ok,data}; doPost returns
+  //      only {ok}.  If the response has a 'data' field the POST was eaten
+  //      by the redirect.  Treat it as a failure and retry.
+  //   2. Verification: even when doPost appears to have run ({ok:true,
+  //      no data field}), re-fetch from the Sheet 3 s later and confirm
+  //      every pending task ID is actually there.  If any are missing,
+  //      retry the POST.
   _syncUp: function (tasks, _attempt) {
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') return;
     var self    = this;
     var attempt = _attempt || 0;
     var payload = JSON.stringify({ action: 'save', data: JSON.stringify(tasks) });
+    self._setStatus('syncing');
     fetch(SCRIPT_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'text/plain' },
@@ -2105,10 +2120,21 @@ var Store = {
     })
     .then(function (r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
     .then(function (d) {
-      if (d.ok) {
-        self._setStatus('ok');
+      console.log('[Store] _syncUp raw response (attempt ' + (attempt+1) + '):', JSON.stringify(d).slice(0,120));
+      // ── Redirect detection ──────────────────────────────────────────
+      // doGet returns {ok, data:"[…]"}; doPost should return only {ok}.
+      // If .data is present the POST was silently redirected to GET and
+      // the Sheet was NOT updated.
+      if (d && d.data !== undefined) {
+        console.warn('[Store] _syncUp: response contains .data — POST was redirected to GET. Sheet NOT updated.');
+        self._scheduleRetry(tasks, attempt);
+        return;
+      }
+      if (d && d.ok) {
+        // doPost acknowledged — now verify the Sheet actually has our data
+        self._verifySave(tasks, attempt);
       } else {
-        console.warn('[Store] _syncUp — Sheet error:', d.error);
+        console.warn('[Store] _syncUp — Sheet returned error:', d && d.error);
         self._scheduleRetry(tasks, attempt);
       }
     })
@@ -2118,15 +2144,54 @@ var Store = {
     });
   },
 
+  // Wait for Sheet propagation then confirm pending tasks are present.
+  _verifySave: function (tasks, attempt) {
+    var self = this;
+    var pending = self._getPending();
+    if (pending.length === 0) {
+      // No pending tasks — nothing to verify
+      self._setStatus('ok');
+      return;
+    }
+    console.log('[Store] _verifySave: checking Sheet for', pending.length, 'pending task(s)…');
+    setTimeout(function () {
+      fetch(SCRIPT_URL + '?action=get', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok || !res.data) {
+          // Can't read Sheet — assume saved, move on
+          self._setStatus('ok');
+          return;
+        }
+        var remote = JSON.parse(res.data);
+        var missing = pending.filter(function (pid) {
+          return !remote.find(function (rt) { return rt.id === pid; });
+        });
+        if (missing.length === 0) {
+          console.log('[Store] _verifySave: all pending tasks confirmed in Sheet ✓');
+          self._setStatus('ok');
+        } else {
+          console.warn('[Store] _verifySave:', missing.length, 'task(s) still missing from Sheet — retrying POST.');
+          self._scheduleRetry(tasks, attempt);
+        }
+      })
+      .catch(function () {
+        // Verification network error — don't retry, assume saved
+        self._setStatus('ok');
+      });
+    }, 3000); // allow 3 s for Sheet write propagation
+  },
+
   _scheduleRetry: function (tasks, attempt) {
-    var self    = this;
-    var delays  = [5000, 15000, 30000];
+    var self   = this;
+    var delays = [5000, 15000, 30000];
     if (attempt < delays.length) {
-      console.log('[Store] Retrying _syncUp in ' + (delays[attempt]/1000) + 's…');
+      console.log('[Store] Retrying _syncUp in ' + (delays[attempt] / 1000) + 's (attempt ' + (attempt + 2) + '/4)…');
       setTimeout(function () { self._syncUp(tasks, attempt + 1); }, delays[attempt]);
     } else {
       self._setStatus('error');
-      toast('⚠ Could not reach Google Sheets after 3 retries. Data is saved locally.', 'error');
+      toast('Could not save to Google Sheets after 4 attempts. Data is stored locally and will retry on next refresh.', 'error');
+      console.error('[Store] All _syncUp retries exhausted. Pending tasks:', self._getPending());
     }
   },
 
