@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v42</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v43</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -461,6 +461,17 @@ textarea{resize:vertical;min-height:88px}
         <p style="margin:0 0 10px;font-size:.85rem;color:#555;">Task data syncs via Google Apps Script. Connection status:</p>
         <button class="btn" onclick="Admin.testConn()" style="font-size:.85rem;">Test Connection</button>
         <div id="connStatus" style="margin-top:10px;font-size:.82rem;"></div>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;">
+          <h4 style="margin:0 0 6px;font-size:.9rem;font-weight:700;">Force Sync — Fix Different Tasks in Different Browsers</h4>
+          <p style="margin:0 0 12px;font-size:.82rem;color:#555;line-height:1.5;">
+            If different browsers are showing different tasks, run this on each browser.
+            It compares your local data with the Sheet and pushes any newer local changes up.
+            Then refresh the other browsers to pull the latest data down.
+          </p>
+          <button class="btn btn-p" onclick="Admin.forceSync()" id="forceSyncBtn" style="font-size:.85rem;">Push Local Changes to Sheet</button>
+          <div id="forceSyncStatus" style="margin-top:10px;font-size:.82rem;"></div>
+        </div>
       </div>
 
       <div class="card" style="max-width:560px;padding:24px 28px;margin-top:16px;border:2px solid #BFDBFE;background:#EFF6FF;">
@@ -1937,9 +1948,16 @@ var Store = {
   },
 
   update: function (id, upd) {
+    var self = this;
+    var updated = null;
     this.save(this.get().map(function (t) {
-      return t.id === id ? Object.assign({}, t, upd, {updatedAt: new Date().toISOString()}) : t;
+      if (t.id !== id) return t;
+      updated = Object.assign({}, t, upd, { updatedAt: new Date().toISOString() });
+      return updated;
     }));
+    // Immediately push the modification to the Sheet via GET so other
+    // browsers see it without waiting for the next POST attempt.
+    if (updated) self._upsertViaGet(updated, true);
   },
 
   del: function (id) {
@@ -2263,7 +2281,7 @@ var Store = {
   // ─── GET UPSERT: save a single task via GET (bypasses POST redirect) ─
   // Fires immediately on add() in parallel with the POST, and again as
   // a last resort after all POST retries fail.
-  _upsertViaGet: function (task) {
+  _upsertViaGet: function (task, silent) {
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') return;
     var self = this;
     var url  = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
@@ -2271,17 +2289,14 @@ var Store = {
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (d.ok && d.upserted) {
-          // Code_v15 confirmed the upsert — task is now in the Sheet
-          console.log('[Store] _upsertViaGet: confirmed by Sheet', task.id, d.isNew ? '(new)' : '(updated)');
+          console.log('[Store] _upsertViaGet: confirmed', task.id, d.isNew ? '(new)' : '(updated)');
           self._removeBackup(task.id);
           self._removePending(task.id);
           self._setStatus('ok');
-          toast('Task saved to Google Sheets \u2713 — other browsers will see it within 30 s.', 'success');
+          if (!silent) toast('Task saved to Google Sheets \u2713 — other browsers will see it within 30 s.', 'success');
         } else if (d.ok && d.data !== undefined) {
-          // Old script (Code_v14) still deployed — doGet returned task list, NOT an upsert.
-          // Task is NOT saved to Sheet. Keep backup+pending so retry can fire later.
-          console.warn('[Store] _upsertViaGet: old Apps Script detected — Code_v15.gs not yet deployed. Task kept in retry queue.');
-          toast('Apps Script needs updating (Code_v15.gs). Task saved locally — will sync once script is deployed.', 'error');
+          console.warn('[Store] _upsertViaGet: old Apps Script — task kept in retry queue.');
+          if (!silent) toast('Apps Script needs updating. Task saved locally.', 'error');
         } else if (!d.ok) {
           console.warn('[Store] _upsertViaGet server error for', task.id, ':', d.error);
         }
@@ -3023,6 +3038,54 @@ var Admin={
     localStorage.setItem('imgbb_key',val);
     Admin._renderSettings();
     toast('ImgBB API key saved.','success');
+  },
+
+  forceSync: function() {
+    var btn = document.getElementById('forceSyncBtn');
+    var el  = document.getElementById('forceSyncStatus');
+    if (btn) btn.disabled = true;
+    if (el)  el.innerHTML = 'Fetching Sheet data&hellip;';
+    fetch(SCRIPT_URL + '?action=get&_=' + Date.now(), { cache: 'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        var remote = (res.ok && res.data) ? JSON.parse(res.data) : [];
+        var local  = Store.get();
+        // Only push tasks where local is newer than what the Sheet has
+        var toSync = local.filter(function(lt){
+          var rt = remote.find(function(t){ return t.id === lt.id; });
+          if (!rt) return true; // missing from Sheet entirely
+          var ltT = lt.updatedAt || lt.createdAt || '';
+          var rtT = rt.updatedAt || rt.createdAt || '';
+          return ltT > rtT;
+        });
+        if (!toSync.length) {
+          if (btn) btn.disabled = false;
+          if (el)  el.innerHTML = '<span style="color:#276749;">&#10003; All local tasks are already up to date in the Sheet.</span>';
+          return;
+        }
+        if (el) el.innerHTML = 'Pushing 0 / ' + toSync.length + ' task(s)&hellip;';
+        var done = 0; var ok = 0;
+        var chain = Promise.resolve();
+        toSync.forEach(function(task){
+          chain = chain.then(function(){
+            var url = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
+            return fetch(url, { cache: 'no-store' })
+              .then(function(r){ return r.json(); })
+              .then(function(d){ done++; if (d.ok && d.upserted) ok++; if (el) el.innerHTML = 'Pushing ' + done + ' / ' + toSync.length + '&hellip;'; })
+              .catch(function(){ done++; });
+          });
+        });
+        chain.then(function(){
+          if (btn) btn.disabled = false;
+          if (el)  el.innerHTML = '<span style="color:#276749;">&#10003; Pushed ' + ok + ' of ' + toSync.length + ' task(s) to Sheet. Refresh other browsers to see all changes.</span>';
+          toast('Force sync complete — ' + ok + ' task(s) pushed to Sheet.', 'success');
+          Store.syncDown(function(){ if(Admin._updateStats) Admin._updateStats(Store.get()); });
+        });
+      })
+      .catch(function(e){
+        if (btn) btn.disabled = false;
+        if (el)  el.innerHTML = '<span style="color:#c05621;">Error: ' + e.message + '</span>';
+      });
   },
 
   testConn:function(){
