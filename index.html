@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v45</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v46</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -463,29 +463,32 @@ textarea{resize:vertical;min-height:88px}
         <div id="connStatus" style="margin-top:10px;font-size:.82rem;"></div>
 
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;">
-          <h4 style="margin:0 0 6px;font-size:.9rem;font-weight:700;">Force Sync — Fix Different Tasks in Different Browsers</h4>
+          <h4 style="margin:0 0 6px;font-size:.9rem;font-weight:700;">&#128257; Sync This Browser to Sheet</h4>
           <p style="margin:0 0 8px;font-size:.82rem;color:#555;line-height:1.5;">
-            If different browsers are showing different tasks, run this on each browser.
-            It compares your local data with the Sheet and pushes any newer local changes up.
-            Then refresh the other browsers to pull the latest data down.
+            Pushes all changes from <strong>this browser</strong> to Google Sheets — including updates,
+            completions, new tasks, and deletions. Run this on your <strong>master browser first</strong>,
+            wait for the confirmation, then use Reset on any other browser.
           </p>
           <div style="background:#FFF9E6;border:1px solid #F0C040;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem;color:#7A5800;line-height:1.5;">
-            &#9888;&nbsp;<strong>Important:</strong> Run on <strong>one browser at a time only.</strong>
-            Wait for the confirmation message before running on another browser.
-            Running on both simultaneously can cause conflicting writes.
+            &#9888;&nbsp;<strong>One browser at a time.</strong> Wait for the green confirmation before
+            touching any other browser. Running simultaneously causes conflicting writes.
           </div>
-          <button class="btn btn-p" onclick="Admin.forceSync()" id="forceSyncBtn" style="font-size:.85rem;">Push Local Changes to Sheet</button>
+          <button class="btn btn-p" onclick="Admin.forceSync()" id="forceSyncBtn" style="font-size:.85rem;">&#8593; Push All Changes to Sheet</button>
           <div id="forceSyncStatus" style="margin-top:10px;font-size:.82rem;"></div>
         </div>
 
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;">
-          <h4 style="margin:0 0 6px;font-size:.9rem;font-weight:700;color:#BB0000;">&#128260; Reset to Sheet Data</h4>
-          <p style="margin:0 0 12px;font-size:.82rem;color:#555;line-height:1.5;">
-            Clears <strong>all local data in this browser</strong> and pulls a fresh copy directly
-            from Google Sheets. Use this on the <em>other</em> browser after you have run
-            Force Sync on your master browser. This guarantees both browsers show identical data.
+          <h4 style="margin:0 0 6px;font-size:.9rem;font-weight:700;color:#BB0000;">&#8595; Reset This Browser from Sheet</h4>
+          <p style="margin:0 0 8px;font-size:.82rem;color:#555;line-height:1.5;">
+            Wipes all local data in <strong>this browser only</strong> and pulls a completely fresh copy
+            from Google Sheets. Use this on any browser that is out of sync, <em>after</em>
+            your master browser has finished pushing.
           </p>
-          <button class="btn btn-d btn-sm" onclick="Admin.resetToSheetData()" style="font-size:.85rem;">Clear Local Data &amp; Pull from Sheet</button>
+          <div style="background:#FEF3E8;border:1px solid #FDDBB4;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:.8rem;color:#7A3A00;line-height:1.5;">
+            &#9888;&nbsp;Any changes in <strong>this browser</strong> that were not yet pushed to the Sheet will be lost.
+            Always Push first on your master browser.
+          </div>
+          <button class="btn btn-d btn-sm" onclick="Admin.resetToSheetData()" style="font-size:.85rem;">&#8635; Clear &amp; Pull Fresh from Sheet</button>
           <div id="resetStatus" style="margin-top:8px;font-size:.82rem;"></div>
         </div>
       </div>
@@ -3137,20 +3140,53 @@ var Admin={
       .then(function(res){
         var remote = (res.ok && res.data) ? JSON.parse(res.data) : [];
         var local  = Store.get();
-        // Only push tasks where local is newer than what the Sheet has
+
+        // ── Step A: find tasks that DIFFER from the Sheet ──────────────
+        // Uses a field-level signature so tasks with matching data are
+        // skipped even when timestamps are missing or equal.
+        // This catches updates that were made before v43 (no updatedAt).
         var toSync = local.filter(function(lt){
           var rt = remote.find(function(t){ return t.id === lt.id; });
-          if (!rt) return true; // missing from Sheet entirely
-          var ltT = lt.updatedAt || lt.createdAt || '';
-          var rtT = rt.updatedAt || rt.createdAt || '';
-          return ltT > rtT;
+          if (!rt) return true; // not in Sheet at all — push it
+          var sig = function(t){
+            return [
+              t.status        || '',
+              t.title         || '',
+              t.assigneeName  || '',
+              t.assigneeCode  || '',
+              t.updatedAt     || '',
+              t.completedAt   || '',
+              t.completionNote|| '',
+              (t.comments      || []).length,
+              (t.refPhotos     || []).length,
+              (t.evidencePhotos|| []).length
+            ].join('|');
+          };
+          return sig(lt) !== sig(rt); // push if anything meaningful changed
         });
+
+        // ── Step B: tombstone locally-deleted tasks still in Sheet ─────
+        // If a task was deleted in this browser but still exists in the
+        // Sheet, other browsers keep restoring it. Pushing a tombstone
+        // {_deleted:true} marks it for removal on every other browser's
+        // next syncDown — permanently eliminating the ghost task.
+        var deletedIds = Store._getDeleted();
+        deletedIds.forEach(function(id){
+          var inSheet = remote.find(function(rt){ return rt.id === id && !rt._deleted; });
+          if (inSheet) {
+            toSync.push({ id: id, _deleted: true, deletedAt: new Date().toISOString() });
+            console.log('[ForceSync] queuing tombstone for deleted task', id);
+          }
+        });
+
         if (!toSync.length) {
           if (btn) btn.disabled = false;
-          if (el)  el.innerHTML = '<span style="color:#276749;">&#10003; All local tasks are already up to date in the Sheet.</span>';
+          if (el)  el.innerHTML = '<span style="color:#276749;">&#10003; Sheet is already fully up to date with this browser.</span>';
+          Store.syncDown(function(){ if(Admin._updateStats) Admin._updateStats(Store.get()); });
           return;
         }
-        if (el) el.innerHTML = 'Pushing 0 / ' + toSync.length + ' task(s)&hellip;';
+
+        if (el) el.innerHTML = 'Pushing 0 / ' + toSync.length + ' change(s)&hellip;';
         var done = 0; var ok = 0;
         var chain = Promise.resolve();
         toSync.forEach(function(task){
@@ -3158,20 +3194,28 @@ var Admin={
             var url = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
             return fetch(url, { cache: 'no-store' })
               .then(function(r){ return r.json(); })
-              .then(function(d){ done++; if (d.ok && d.upserted) ok++; if (el) el.innerHTML = 'Pushing ' + done + ' / ' + toSync.length + '&hellip;'; })
+              .then(function(d){
+                done++;
+                if (d.ok && d.upserted) ok++;
+                if (el) el.innerHTML = 'Pushing ' + done + ' / ' + toSync.length + '&hellip;';
+              })
               .catch(function(){ done++; });
           });
         });
         chain.then(function(){
           if (btn) btn.disabled = false;
-          if (el)  el.innerHTML = '<span style="color:#276749;">&#10003; Pushed ' + ok + ' of ' + toSync.length + ' task(s) to Sheet. Refresh other browsers to see all changes.</span>';
-          toast('Force sync complete — ' + ok + ' task(s) pushed to Sheet.', 'success');
+          var nTomb = toSync.filter(function(t){ return t._deleted; }).length;
+          var msg = ok + ' update(s)';
+          if (nTomb) msg += ' + ' + nTomb + ' deletion(s)';
+          if (el) el.innerHTML = '<span style="color:#276749;">&#10003; Pushed ' + msg + ' to Sheet. Other browsers will sync within 30 s.</span>';
+          toast('Force sync done — ' + msg + ' pushed to Sheet.', 'success');
+          // Pull Sheet back into this browser so local view is consistent
           Store.syncDown(function(){ if(Admin._updateStats) Admin._updateStats(Store.get()); });
         });
       })
       .catch(function(e){
         if (btn) btn.disabled = false;
-        if (el)  el.innerHTML = '<span style="color:#c05621;">Error: ' + e.message + '</span>';
+        if (el)  el.innerHTML = '<span style="color:#c05621;">Error reaching Sheet: ' + e.message + '</span>';
       });
   },
 
