@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v46</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v47</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -3141,47 +3141,52 @@ var Admin={
         var remote = (res.ok && res.data) ? JSON.parse(res.data) : [];
         var local  = Store.get();
 
-        // ── Step A: find tasks that DIFFER from the Sheet ──────────────
-        // Uses a field-level signature so tasks with matching data are
-        // skipped even when timestamps are missing or equal.
-        // This catches updates that were made before v43 (no updatedAt).
+        // ── Step A: tasks that DIFFER from the Sheet ───────────────────
+        // Field-level signature comparison — catches updates with no
+        // updatedAt timestamp (added before v43).
+        var sig = function(t){
+          return [
+            t.status || '', t.title || '', t.assigneeName || '',
+            t.assigneeCode || '', t.updatedAt || '', t.completedAt || '',
+            t.completionNote || '',
+            (t.comments||[]).length,
+            (t.refPhotos||[]).length,
+            (t.evidencePhotos||[]).length
+          ].join('|');
+        };
         var toSync = local.filter(function(lt){
           var rt = remote.find(function(t){ return t.id === lt.id; });
-          if (!rt) return true; // not in Sheet at all — push it
-          var sig = function(t){
-            return [
-              t.status        || '',
-              t.title         || '',
-              t.assigneeName  || '',
-              t.assigneeCode  || '',
-              t.updatedAt     || '',
-              t.completedAt   || '',
-              t.completionNote|| '',
-              (t.comments      || []).length,
-              (t.refPhotos     || []).length,
-              (t.evidencePhotos|| []).length
-            ].join('|');
-          };
-          return sig(lt) !== sig(rt); // push if anything meaningful changed
+          return !rt || sig(lt) !== sig(rt);
         });
 
-        // ── Step B: tombstone locally-deleted tasks still in Sheet ─────
-        // If a task was deleted in this browser but still exists in the
-        // Sheet, other browsers keep restoring it. Pushing a tombstone
-        // {_deleted:true} marks it for removal on every other browser's
-        // next syncDown — permanently eliminating the ghost task.
+        // ── Step B: tombstone tasks deleted in this browser ────────────
         var deletedIds = Store._getDeleted();
         deletedIds.forEach(function(id){
           var inSheet = remote.find(function(rt){ return rt.id === id && !rt._deleted; });
-          if (inSheet) {
-            toSync.push({ id: id, _deleted: true, deletedAt: new Date().toISOString() });
-            console.log('[ForceSync] queuing tombstone for deleted task', id);
+          if (inSheet) toSync.push({ id: id, _deleted: true, deletedAt: new Date().toISOString() });
+        });
+
+        // ── Step C: tombstone Sheet-only tasks (the key new fix) ───────
+        // Tasks that exist in the Sheet but are ABSENT from this browser's
+        // local list AND not already in the deleted-IDs list are "orphan"
+        // tasks — usually added in another browser during the broken-sync
+        // period and never received here. Because the user is running Force
+        // Sync to make THIS browser the master, we tombstone them so every
+        // other browser removes them on its next syncDown.
+        remote.forEach(function(rt){
+          if (rt._deleted) return; // already a tombstone — skip
+          var inLocal   = !!local.find(function(lt){ return lt.id === rt.id; });
+          var inDeleted = deletedIds.indexOf(rt.id) >= 0;
+          var alreadyQueued = !!toSync.find(function(t){ return t.id === rt.id; });
+          if (!inLocal && !inDeleted && !alreadyQueued) {
+            toSync.push({ id: rt.id, _deleted: true, deletedAt: new Date().toISOString() });
+            console.log('[ForceSync] Step C: queuing tombstone for Sheet-only orphan', rt.id);
           }
         });
 
         if (!toSync.length) {
           if (btn) btn.disabled = false;
-          if (el)  el.innerHTML = '<span style="color:#276749;">&#10003; Sheet is already fully up to date with this browser.</span>';
+          if (el)  el.innerHTML = '<span style="color:#276749;">&#10003; Sheet is already fully in sync with this browser.</span>';
           Store.syncDown(function(){ if(Admin._updateStats) Admin._updateStats(Store.get()); });
           return;
         }
@@ -3205,11 +3210,12 @@ var Admin={
         chain.then(function(){
           if (btn) btn.disabled = false;
           var nTomb = toSync.filter(function(t){ return t._deleted; }).length;
-          var msg = ok + ' update(s)';
-          if (nTomb) msg += ' + ' + nTomb + ' deletion(s)';
-          if (el) el.innerHTML = '<span style="color:#276749;">&#10003; Pushed ' + msg + ' to Sheet. Other browsers will sync within 30 s.</span>';
-          toast('Force sync done — ' + msg + ' pushed to Sheet.', 'success');
-          // Pull Sheet back into this browser so local view is consistent
+          var nUpd  = toSync.length - nTomb;
+          var msg = [];
+          if (nUpd)  msg.push(nUpd  + ' update(s)');
+          if (nTomb) msg.push(nTomb + ' removal(s)');
+          if (el) el.innerHTML = '<span style="color:#276749;">&#10003; Pushed ' + msg.join(' + ') + ' to Sheet. Other browsers will sync within 30 s.</span>';
+          toast('Force sync done — ' + msg.join(' + ') + ' pushed.', 'success');
           Store.syncDown(function(){ if(Admin._updateStats) Admin._updateStats(Store.get()); });
         });
       })
