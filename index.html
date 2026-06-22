@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v52</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v53</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -3579,10 +3579,13 @@ var Admin={
         // Code_v14 or older will not sync tasks at all.
         var isV14=(ver==='Code_v14'||!d.scriptVersion);
         var isV18=(ver==='Code_v18');
+        var isV19=(ver==='Code_v19');
         if(el)el.innerHTML=isV14
-          ?'<span style="color:#c05621;">&#9888; Connected but running old Code_v14 &mdash; new tasks will not sync. Deploy Code_v19.</span>'
+          ?'<span style="color:#c05621;">&#9888; Connected but running old Code_v14 &mdash; new tasks will not sync. Deploy Code_v20.</span>'
           :isV18
-          ?'<span style="color:#E76500;">&#9888; Connected &mdash; Code_v18. Upserts may be slow causing sync errors. Deploy Code_v19 to fix this.</span>'
+          ?'<span style="color:#E76500;">&#9888; Connected &mdash; Code_v18. Upserts may be slow causing sync errors. Deploy Code_v20 to fix.</span>'
+          :isV19
+          ?'<span style="color:#E76500;">&#9888; Connected &mdash; Code_v19. Missing multi-cell storage fix. Deploy Code_v20 to permanently fix sync errors.</span>'
           :'<span style="color:#276749;">&#10003; Connected &mdash; '+ver+'. Sync is working correctly.</span>';
       })
       .catch(function(e){
