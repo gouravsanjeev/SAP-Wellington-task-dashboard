@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v51</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v52</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -2029,6 +2029,10 @@ var Store = {
 
   byId: function (id) { return this.get().find(function (t) { return t.id === id; }) || null; },
 
+  // v52: concurrency guards — prevent overlapping chains
+  _syncUpActive: false,
+  _fbActive:     false,
+
   // ─── PENDING-ADDS (track ID until Sheet confirms) ─────────────────
   _pk: function () { return this.KEY + '_pending'; },
   _addPending:    function (id) { var p=this._getPending(); if(p.indexOf(id)<0){p.push(id);} localStorage.setItem(this._pk(),JSON.stringify(p)); },
@@ -2246,21 +2250,42 @@ var Store = {
               });
               localStorage.setItem(self._pk(), JSON.stringify(stillPending));
 
-              // Step 4 – decide whether to push back to Sheet
+              // Step 4 – write merged to localStorage; push local-only tasks via
+              // GET upserts only.
+              //
+              // v52 ROOT-CAUSE FIX: _syncUp (POST) is intentionally NOT called
+              // from syncDown. The Apps Script /exec endpoint reliably redirects
+              // POST → GET, silently dropping the body. Calling save() here
+              // creates an infinite retry chain: POST fails → 4 retries over
+              // ~50 s, while syncDown fires every 30 s — chains accumulate,
+              // multiple concurrent _fallbackUpsert calls choke LockService,
+              // and the "could not reach" error toast fires every cycle forever.
+              // GET upserts via _fallbackUpsert() are fast (~1 s each with
+              // Code_v19's skipView flag), serialised, and lock-safe.
               var anyLocalOnly = merged.some(function (m) {
                 return !remote.find(function (rt) { return rt.id === m.id; });
               });
 
-              if (stillPending.length > 0 || anyLocalOnly || deletedInRemote) {
-                // Push merged (includes all local tasks, omits deleted) back to Sheet
-                self.save(merged);
+              localStorage.setItem(self.KEY, JSON.stringify(merged));
+
+              if (stillPending.length > 0 || anyLocalOnly) {
                 console.log('[Store] syncDown: ' + stillPending.length +
-                  ' pending, anyLocalOnly=' + anyLocalOnly +
-                  ', deletedInRemote=' + deletedInRemote + ' — re-pushing to Sheet.');
+                  ' pending, anyLocalOnly=' + anyLocalOnly + ' — pushing via GET upserts.');
+                self._fallbackUpsert();
               } else {
-                // Fully in sync — just update localStorage, no need to push
-                localStorage.setItem(self.KEY, JSON.stringify(merged));
                 console.log('[Store] syncDown: fully synced — ' + merged.length + ' tasks.');
+              }
+
+              // Handle deletedInRemote: push tombstones for locally-deleted tasks
+              // that are still alive in the Sheet. Handled via GET upsert (instant).
+              if (deletedInRemote) {
+                var deletedList = self._getDeleted();
+                remote.forEach(function (rt) {
+                  if (deletedList.indexOf(rt.id) >= 0) {
+                    console.log('[Store] syncDown: re-tombstoning locally-deleted remote task', rt.id);
+                    self._upsertViaGet({ id: rt.id, _deleted: true, deletedAt: new Date().toISOString() }, true);
+                  }
+                });
               }
 
               // Step 5 – push locally-UPDATED tasks whose changes haven't reached
@@ -2344,6 +2369,17 @@ var Store = {
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') return;
     var self    = this;
     var attempt = _attempt || 0;
+
+    // v52: prevent concurrent _syncUp chains. If a chain is already in flight
+    // (from an add/update/del), skip this new one — the in-flight chain will
+    // eventually call _fallbackUpsert which picks up any newly pending tasks.
+    if (attempt === 0) {
+      if (self._syncUpActive) {
+        console.log('[Store] _syncUp: chain already in flight — skipping duplicate call.');
+        return;
+      }
+      self._syncUpActive = true;
+    }
     var payload = JSON.stringify({ action: 'save', data: JSON.stringify(tasks) });
     self._setStatus('syncing');
     fetch(SCRIPT_URL, {
@@ -2406,6 +2442,7 @@ var Store = {
           });
           if (missing.length === 0) {
             console.log('[Store] _verifySave: all pending tasks confirmed in Sheet ✓');
+            self._syncUpActive = false; // v52: release guard
             self._setStatus('ok');
           } else if (checksLeft > 1) {
             console.log('[Store] _verifySave:', missing.length, 'still missing — re-checking (' + (checksLeft - 1) + ' checks left)…');
@@ -2429,6 +2466,7 @@ var Store = {
       setTimeout(function () { self._syncUp(tasks, attempt + 1); }, delays[attempt]);
     } else {
       // POST exhausted — run GET upsert for every pending new task
+      self._syncUpActive = false; // v52: release guard so next user action can retry POST
       self._fallbackUpsert();
     }
   },
@@ -2466,26 +2504,51 @@ var Store = {
   // parallel writes to the Sheet overwrite each other.
   _fallbackUpsert: function () {
     var self    = this;
+
+    // v52: guard — only one _fallbackUpsert chain runs at a time.
+    // syncDown fires every 30 s; without this guard a second invocation
+    // starts before the first chain finishes, doubling lock contention.
+    if (self._fbActive) {
+      console.log('[Store] _fallbackUpsert: already running — skipping duplicate call.');
+      return;
+    }
+    self._fbActive = true;
+
     var pending = self._getPending();
-    if (!pending.length) { self._setStatus('ok'); return; }
+    if (!pending.length) { self._fbActive = false; self._setStatus('ok'); return; }
     console.log('[Store] _fallbackUpsert: serialising', pending.length, 'upsert(s)');
 
-    var success  = 0;
-    var skipped  = 0;   // pending IDs with no backup AND not in main storage
-    var fetched  = 0;   // actual fetch attempts made
+    // v52: per-task retry counter — give up after MAX_RETRY failures so a
+    // permanently broken/oversized task does not loop the error toast forever.
+    var RETRY_KEY = self.KEY + '_retries';
+    var retryMap  = (function () {
+      try { return JSON.parse(localStorage.getItem(RETRY_KEY) || '{}'); } catch (e) { return {}; }
+    })();
+    var MAX_RETRY = 5;
+
+    var success = 0;
+    var skipped = 0;
+    var fetched = 0;
     var chain = Promise.resolve();
     pending.forEach(function (pid) {
       chain = chain.then(function () {
-        // v50 fix: if backup is missing, fall back to main localStorage.
-        // Backup can be lost when syncDown sees the task in the Sheet,
-        // removes the backup, then the Sheet is later overwritten without
-        // that task — leaving the ID stuck in _pending with no backup.
+
+        // Max-retry guard: give up on this task if it has failed too many times
+        if ((retryMap[pid] || 0) >= MAX_RETRY) {
+          console.warn('[Store] _fallbackUpsert: giving up on', pid,
+            'after', MAX_RETRY, 'retries — clearing from queue.');
+          self._removePending(pid);
+          self._removeBackup(pid);
+          delete retryMap[pid];
+          localStorage.setItem(RETRY_KEY, JSON.stringify(retryMap));
+          skipped++;
+          return Promise.resolve();
+        }
+
         var task = self._getBackup(pid)
-                || self.get().find(function (t) { return t.id === pid; })
-                || null;
+                    || self.get().find(function (t) { return t.id === pid; })
+                    || null;
         if (!task) {
-          // ID is in pending but the task object is nowhere — remove the
-          // stale pending entry so it stops triggering the error loop.
           self._removePending(pid);
           skipped++;
           console.warn('[Store] _fallbackUpsert: no task object found for pending id', pid, '— clearing stale entry.');
@@ -2500,24 +2563,32 @@ var Store = {
               success++;
               self._removeBackup(pid);
               self._removePending(pid);
+              delete retryMap[pid];
+              localStorage.setItem(RETRY_KEY, JSON.stringify(retryMap));
               console.log('[Store] _fallbackUpsert: saved', pid);
             } else if (d.ok && d.data !== undefined) {
               console.warn('[Store] _fallbackUpsert: old script still running for', pid);
+              retryMap[pid] = (retryMap[pid] || 0) + 1;
+              localStorage.setItem(RETRY_KEY, JSON.stringify(retryMap));
             } else {
-              console.warn('[Store] _fallbackUpsert error for', pid, d.error);
+              console.warn('[Store] _fallbackUpsert error for', pid, ':', d.error || JSON.stringify(d));
+              retryMap[pid] = (retryMap[pid] || 0) + 1;
+              localStorage.setItem(RETRY_KEY, JSON.stringify(retryMap));
             }
           })
-          .catch(function (e) { console.error('[Store] _fallbackUpsert network error', pid, e); });
+          .catch(function (e) {
+            console.error('[Store] _fallbackUpsert network error', pid, e);
+            retryMap[pid] = (retryMap[pid] || 0) + 1;
+            localStorage.setItem(RETRY_KEY, JSON.stringify(retryMap));
+          });
       });
     });
 
     chain.then(function () {
+      self._fbActive = false;
       if (fetched === 0) {
-        // Every pending ID had no task object — stale queue, now cleared.
-        // This is not a real error; tasks are already in the Sheet or were
-        // never created. No toast needed — just restore green status.
         self._setStatus('ok');
-        console.log('[Store] _fallbackUpsert: all pending entries were stale — cleared. No network errors.');
+        console.log('[Store] _fallbackUpsert: all entries were stale or gave up — queue clean.');
       } else if (success > 0) {
         self._setStatus('ok');
         toast(success + ' task(s) synced to Google Sheets.', 'success');
@@ -3483,7 +3554,7 @@ var Admin={
 
     if (el) el.innerHTML = 'Clearing local data&hellip;';
     // Clear all local task storage for this browser
-    ['tap_si_v2', 'tap_si_v2_pending', 'tap_si_v2_bk', 'tap_si_v2_del'].forEach(function(k) {
+    ['tap_si_v2', 'tap_si_v2_pending', 'tap_si_v2_bk', 'tap_si_v2_del', 'tap_si_v2_retries'].forEach(function(k) {
       localStorage.removeItem(k);
     });
     if (el) el.innerHTML = 'Pulling fresh data from Sheet&hellip;';
