@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v47</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v48</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -2075,12 +2075,22 @@ var Store = {
           try {
             var remote = JSON.parse(res.data);
 
-            // ── Filter tombstones from remote ─────────────────────────────────
-            // Tombstones are deletion markers: {id, _deleted:true} written by
-            // another browser's del(). Adopt the deletion locally so the task
-            // never bounces back from the Sheet.
+            // ── Filter tombstones from remote AND purge them from local ────────
+            //
+            // THE CRITICAL FIX (v48):
+            // Old behaviour: tombstones were filtered from `remote` but the same
+            // tasks remained in `local`. The merge then saw them as "local-only"
+            // and immediately re-pushed them to the Sheet, overwriting the
+            // tombstone. This created an infinite push/restore loop that made
+            // deletions from another browser impossible to apply.
+            //
+            // New behaviour: BEFORE the merge runs, tombstoned task IDs are
+            // removed from this browser's localStorage, pending queue, and backup
+            // cache. The merge never sees them, so they can never be re-pushed.
+            var tombstonedIds = [];
             remote = remote.filter(function (rt) {
               if (rt._deleted) {
+                tombstonedIds.push(rt.id);
                 if (self._getDeleted().indexOf(rt.id) < 0) {
                   self._trackDeleted(rt.id);
                   console.log('[Store] syncDown: adopted deletion tombstone for', rt.id);
@@ -2089,6 +2099,28 @@ var Store = {
               }
               return true;
             });
+
+            // Purge tombstoned tasks from local storage NOW so the merge below
+            // cannot see them and cannot re-push them to the Sheet.
+            if (tombstonedIds.length > 0) {
+              var preClean = self.get();
+              var postClean = preClean.filter(function (lt) {
+                return tombstonedIds.indexOf(lt.id) < 0;
+              });
+              if (postClean.length < preClean.length) {
+                localStorage.setItem(self.KEY, JSON.stringify(postClean));
+                // Remove from pending + backup so _fallbackUpsert cannot restore them
+                var stalePending = self._getPending().filter(function (pid) {
+                  return tombstonedIds.indexOf(pid) >= 0;
+                });
+                stalePending.forEach(function (pid) {
+                  self._removePending(pid);
+                  self._removeBackup(pid);
+                });
+                console.log('[Store] syncDown: purged', preClean.length - postClean.length,
+                  'tombstoned task(s) from local storage — they will not bounce back.');
+              }
+            }
 
             if (Array.isArray(remote) && remote.length) {
 
