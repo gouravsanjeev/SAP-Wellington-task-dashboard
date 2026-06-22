@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v43</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v44</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -1961,10 +1961,29 @@ var Store = {
   },
 
   del: function (id) {
+    var self = this;
     this.save(this.get().filter(function (t) { return t.id !== id; }));
     this._removePending(id);
     this._removeBackup(id);
     this._trackDeleted(id);  // Layer 2: remember this deletion so it doesn't bounce back
+    // Push a tombstone to the Sheet so other browsers also remove this task.
+    // A tombstone is a minimal object {id, _deleted:true} that the upsert
+    // handler writes into the Sheet. Other browsers filter it out on syncDown
+    // and add the ID to their own _del list — permanent cross-browser deletion.
+    if (SCRIPT_URL && SCRIPT_URL !== 'YOUR_APPS_SCRIPT_URL') {
+      var tombstone = { id: id, _deleted: true, deletedAt: new Date().toISOString() };
+      var tUrl = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(tombstone));
+      fetch(tUrl, { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.ok && d.upserted) {
+            console.log('[Store] del: tombstone pushed to Sheet for', id);
+          } else {
+            console.warn('[Store] del: tombstone upsert failed for', id, d.error || '');
+          }
+        })
+        .catch(function (e) { console.warn('[Store] del: tombstone network error:', e); });
+    }
   },
 
   byId: function (id) { return this.get().find(function (t) { return t.id === id; }) || null; },
@@ -2036,6 +2055,22 @@ var Store = {
         if (res.ok && res.data) {
           try {
             var remote = JSON.parse(res.data);
+
+            // ── Filter tombstones from remote ─────────────────────────────────
+            // Tombstones are deletion markers: {id, _deleted:true} written by
+            // another browser's del(). Adopt the deletion locally so the task
+            // never bounces back from the Sheet.
+            remote = remote.filter(function (rt) {
+              if (rt._deleted) {
+                if (self._getDeleted().indexOf(rt.id) < 0) {
+                  self._trackDeleted(rt.id);
+                  console.log('[Store] syncDown: adopted deletion tombstone for', rt.id);
+                }
+                return false; // exclude tombstone from merge
+              }
+              return true;
+            });
+
             if (Array.isArray(remote) && remote.length) {
 
               // ════════════════════════════════════════════════════════
@@ -2148,6 +2183,42 @@ var Store = {
                 // Fully in sync — just update localStorage, no need to push
                 localStorage.setItem(self.KEY, JSON.stringify(merged));
                 console.log('[Store] syncDown: fully synced — ' + merged.length + ' tasks.');
+              }
+
+              // Step 5 – push locally-UPDATED tasks whose changes haven't reached
+              // the Sheet yet.  This covers the case where update() fired
+              // _upsertViaGet but it failed (network hiccup).  Each 30-second
+              // syncDown cycle retries these until the Sheet confirms them.
+              // Tasks are serialised (one at a time) to avoid concurrent write
+              // race conditions on the Apps Script LockService.
+              var locallyUpdated = [];
+              merged.forEach(function (m) {
+                var rt = remote.find(function (r) { return r.id === m.id; });
+                if (!rt) return; // new task — handled by anyLocalOnly/pending above
+                var ltTime = m.updatedAt || '';
+                var rtTime = rt.updatedAt || '';
+                if (ltTime && ltTime > rtTime) locallyUpdated.push(m);
+              });
+              if (locallyUpdated.length > 0) {
+                console.log('[Store] syncDown: re-pushing', locallyUpdated.length,
+                  'locally-updated task(s) whose changes did not reach the Sheet.');
+                var uChain = Promise.resolve();
+                locallyUpdated.forEach(function (task) {
+                  uChain = uChain.then(function () {
+                    var uUrl = SCRIPT_URL + '?action=upsert&task=' +
+                      encodeURIComponent(JSON.stringify(task));
+                    return fetch(uUrl, { cache: 'no-store' })
+                      .then(function (r) { return r.json(); })
+                      .then(function (d) {
+                        if (d.ok && d.upserted) {
+                          console.log('[Store] syncDown: pushed update for', task.id);
+                        }
+                      })
+                      .catch(function (e) {
+                        console.warn('[Store] syncDown: update upsert failed for', task.id, e);
+                      });
+                  });
+                });
               }
 
             } else {
