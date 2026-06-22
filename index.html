@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v48</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v49</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -475,6 +475,17 @@ textarea{resize:vertical;min-height:88px}
           </div>
           <button class="btn btn-p" onclick="Admin.forceSync()" id="forceSyncBtn" style="font-size:.85rem;">&#8593; Push All Changes to Sheet</button>
           <div id="forceSyncStatus" style="margin-top:10px;font-size:.82rem;"></div>
+        </div>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;">
+          <h4 style="margin:0 0 6px;font-size:.9rem;font-weight:700;color:#0070F2;">&#128257; Full Rebuild Sheet from Chrome</h4>
+          <p style="margin:0 0 8px;font-size:.82rem;color:#555;line-height:1.5;">
+            Sends every task in <strong>this browser</strong> to Google Sheets individually via a
+            reliable GET request — bypasses the POST path entirely. Use this when the Sheet is
+            missing tasks or comments after a sync failure.
+          </p>
+          <button class="btn btn-s" onclick="Admin.fullPush()" id="fullPushBtn" style="font-size:.85rem;border-color:#0070F2;color:#0070F2;">&#128257; Full Rebuild Sheet from This Browser</button>
+          <div id="fullPushStatus" style="margin-top:8px;font-size:.82rem;"></div>
         </div>
 
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;">
@@ -2360,32 +2371,38 @@ var Store = {
       return;
     }
     console.log('[Store] _verifySave: checking Sheet for', pending.length, 'pending task(s)…');
-    setTimeout(function () {
-      fetch(SCRIPT_URL + '?action=get&_=' + Date.now(), { cache: 'no-store' })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        if (!res.ok || !res.data) {
-          // Can't read Sheet — assume saved, move on
-          self._setStatus('ok');
-          return;
-        }
-        var remote = JSON.parse(res.data);
-        var missing = pending.filter(function (pid) {
-          return !remote.find(function (rt) { return rt.id === pid; });
-        });
-        if (missing.length === 0) {
-          console.log('[Store] _verifySave: all pending tasks confirmed in Sheet ✓');
-          self._setStatus('ok');
-        } else {
-          console.warn('[Store] _verifySave:', missing.length, 'task(s) still missing from Sheet — retrying POST.');
-          self._scheduleRetry(tasks, attempt);
-        }
-      })
-      .catch(function () {
-        // Verification network error — don't retry, assume saved
-        self._setStatus('ok');
-      });
-    }, 3000); // allow 3 s for Sheet write propagation
+
+    // v49: multi-check before giving up.
+    // Apps Script _updateView makes 60+ individual Sheets API calls which can
+    // take 5-15 s.  A single 3 s check fires before the write propagates and
+    // always fails, creating an infinite retry loop.  Now we check up to 3
+    // times (after 6 s, 12 s, 22 s) before deciding the POST truly failed.
+    function _check(checksLeft) {
+      var delay = checksLeft === 3 ? 6000 : checksLeft === 2 ? 12000 : 22000;
+      setTimeout(function () {
+        fetch(SCRIPT_URL + '?action=get&_=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (!res.ok || !res.data) { self._setStatus('ok'); return; }
+          var remote = JSON.parse(res.data);
+          var missing = pending.filter(function (pid) {
+            return !remote.find(function (rt) { return rt.id === pid; });
+          });
+          if (missing.length === 0) {
+            console.log('[Store] _verifySave: all pending tasks confirmed in Sheet ✓');
+            self._setStatus('ok');
+          } else if (checksLeft > 1) {
+            console.log('[Store] _verifySave:', missing.length, 'still missing — re-checking (' + (checksLeft - 1) + ' checks left)…');
+            _check(checksLeft - 1);
+          } else {
+            console.warn('[Store] _verifySave:', missing.length, 'task(s) still missing from Sheet — retrying POST.');
+            self._scheduleRetry(tasks, attempt);
+          }
+        })
+        .catch(function () { self._setStatus('ok'); });
+      }, delay);
+    }
+    _check(3);
   },
 
   _scheduleRetry: function (tasks, attempt) {
@@ -2471,6 +2488,48 @@ var Store = {
         self._setStatus('error');
         toast('Could not save to Google Sheets — check Apps Script URL in Settings.', 'error');
       }
+    });
+  },
+
+  // ─── FULL PUSH: send every local task to Sheet via GET upsert ────
+  // More reliable than the POST-based _syncUp for recovering from a
+  // state where the Sheet is missing tasks that Chrome has locally.
+  // Serialised (one at a time) to avoid LockService contention.
+  _fullPush: function (onDone) {
+    if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
+      if (onDone) onDone(0, 0);
+      return;
+    }
+    var self   = this;
+    var tasks  = self.get();
+    if (!tasks.length) { if (onDone) onDone(0, 0); return; }
+    console.log('[Store] _fullPush: pushing', tasks.length, 'task(s) to Sheet…');
+    self._setStatus('syncing');
+    var ok = 0; var done = 0;
+    var chain = Promise.resolve();
+    tasks.forEach(function (task) {
+      chain = chain.then(function () {
+        var url = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
+        return fetch(url, { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            done++;
+            if (d.ok && d.upserted) {
+              ok++;
+              self._removePending(task.id);
+              self._removeBackup(task.id);
+              console.log('[Store] _fullPush:', done + '/' + tasks.length, task.id, d.isNew ? '(new)' : '(upd)');
+            } else {
+              console.warn('[Store] _fullPush:', done + '/' + tasks.length, task.id, 'not upserted:', d.error || JSON.stringify(d));
+            }
+          })
+          .catch(function (e) { done++; console.warn('[Store] _fullPush network error', task.id, e); });
+      });
+    });
+    chain.then(function () {
+      self._setStatus(ok > 0 ? 'ok' : 'error');
+      console.log('[Store] _fullPush done —', ok, '/', tasks.length, 'pushed.');
+      if (onDone) onDone(ok, tasks.length);
     });
   },
 
@@ -3255,6 +3314,42 @@ var Admin={
         if (btn) btn.disabled = false;
         if (el)  el.innerHTML = '<span style="color:#c05621;">Error reaching Sheet: ' + e.message + '</span>';
       });
+  },
+
+  fullPush: function () {
+    var el  = document.getElementById('fullPushStatus');
+    var btn = document.getElementById('fullPushBtn');
+    if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
+      if (el) el.innerHTML = '<span style="color:#c05621;">No Apps Script URL configured.</span>';
+      return;
+    }
+    if (!confirm(
+      'This will send every task from THIS browser to Google Sheets one by one.\n\n' +
+      'Use this when the Sheet is missing tasks or when comments/images are not syncing.\n\n' +
+      'It may take 60–120 seconds for all tasks. Other browsers will sync within 30 s after it completes.\n\nContinue?'
+    )) return;
+
+    if (btn) btn.disabled = true;
+    var tasks = Store.get();
+    if (el) el.innerHTML = 'Starting full push of ' + tasks.length + ' tasks&hellip;';
+
+    var done = 0; var ok = 0;
+    Store._fullPush(function (pushed, total) {
+      if (btn) btn.disabled = false;
+      if (el) el.innerHTML = pushed === total
+        ? '<span style="color:#276749;">&#10003; All ' + total + ' tasks pushed to Sheet. Edge will sync within 30 s.</span>'
+        : '<span style="color:#c05621;">&#9888; Pushed ' + pushed + ' / ' + total + ' tasks. Some failed — retry or check connection.</span>';
+      toast('Full push: ' + pushed + '/' + total + ' tasks sent to Sheet.', pushed === total ? 'success' : 'error');
+    });
+
+    // Live counter
+    var t0 = Date.now();
+    var iv = setInterval(function () {
+      var tasks2 = Store.get();
+      var pending = Store._getPending();
+      if (!document.getElementById('fullPushBtn').disabled) { clearInterval(iv); return; }
+      if (el) el.innerHTML = 'Pushing tasks&hellip; (' + Math.round((Date.now() - t0) / 1000) + ' s elapsed)';
+    }, 1000);
   },
 
   resetToSheetData: function() {
