@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v49</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v50</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -2204,6 +2204,11 @@ var Store = {
                   self._addPending(mt.id);
                   self._backupTask(mt);
                   console.log('[Store] syncDown: re-enqueued local-only task', mt.id);
+                } else if (!inRemote && inPending && !self._getBackup(mt.id)) {
+                  // v50 fix: In pending but backup was lost — restore it so
+                  // _fallbackUpsert can actually push this task.
+                  self._backupTask(mt);
+                  console.log('[Store] syncDown: restored missing backup for pending task', mt.id);
                 }
               });
 
@@ -2454,13 +2459,28 @@ var Store = {
     if (!pending.length) { self._setStatus('ok'); return; }
     console.log('[Store] _fallbackUpsert: serialising', pending.length, 'upsert(s)');
 
-    var success = 0;
-    // Chain promises so each write completes before the next starts
+    var success  = 0;
+    var skipped  = 0;   // pending IDs with no backup AND not in main storage
+    var fetched  = 0;   // actual fetch attempts made
     var chain = Promise.resolve();
     pending.forEach(function (pid) {
       chain = chain.then(function () {
-        var task = self._getBackup(pid);
-        if (!task) { return Promise.resolve(); }
+        // v50 fix: if backup is missing, fall back to main localStorage.
+        // Backup can be lost when syncDown sees the task in the Sheet,
+        // removes the backup, then the Sheet is later overwritten without
+        // that task — leaving the ID stuck in _pending with no backup.
+        var task = self._getBackup(pid)
+                || self.get().find(function (t) { return t.id === pid; })
+                || null;
+        if (!task) {
+          // ID is in pending but the task object is nowhere — remove the
+          // stale pending entry so it stops triggering the error loop.
+          self._removePending(pid);
+          skipped++;
+          console.warn('[Store] _fallbackUpsert: no task object found for pending id', pid, '— clearing stale entry.');
+          return Promise.resolve();
+        }
+        fetched++;
         var url = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(task));
         return fetch(url, { cache: 'no-store' })
           .then(function (r) { return r.json(); })
@@ -2481,12 +2501,18 @@ var Store = {
     });
 
     chain.then(function () {
-      if (success > 0) {
+      if (fetched === 0) {
+        // Every pending ID had no task object — stale queue, now cleared.
+        // This is not a real error; tasks are already in the Sheet or were
+        // never created. No toast needed — just restore green status.
+        self._setStatus('ok');
+        console.log('[Store] _fallbackUpsert: all pending entries were stale — cleared. No network errors.');
+      } else if (success > 0) {
         self._setStatus('ok');
         toast(success + ' task(s) synced to Google Sheets.', 'success');
       } else {
         self._setStatus('error');
-        toast('Could not save to Google Sheets — check Apps Script URL in Settings.', 'error');
+        toast('Could not reach Google Sheets — will retry on next refresh.', 'error');
       }
     });
   },
