@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:88px}
   </div>
   <div class="hdr-right">
     <span id="syncStatus" style="font-size:11px;color:rgba(255,255,255,.7);margin-right:6px"></span>
-    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v50</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.4);margin-right:8px;font-weight:500">v51</span>
     <button class="btn-refresh" onclick="Store.manualRefresh()" title="Pull latest data from Google Sheets">&#8635; Refresh</button>
     <button class="btn-refresh" id="btnTestScript" onclick="App.testScriptConnection()" title="Send a test ping to the Apps Script to verify it is reachable" style="display:none">&#10003; Test Script</button>
     <span class="role-badge" id="roleBadge">Select Role</span>
@@ -486,6 +486,17 @@ textarea{resize:vertical;min-height:88px}
           </p>
           <button class="btn btn-s" onclick="Admin.fullPush()" id="fullPushBtn" style="font-size:.85rem;border-color:#0070F2;color:#0070F2;">&#128257; Full Rebuild Sheet from This Browser</button>
           <div id="fullPushStatus" style="margin-top:8px;font-size:.82rem;"></div>
+        </div>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;">
+          <h4 style="margin:0 0 6px;font-size:.9rem;font-weight:700;color:#6A1B9A;">&#128683; Remove Orphan Tasks from Sheet</h4>
+          <p style="margin:0 0 8px;font-size:.82rem;color:#555;line-height:1.5;">
+            Finds tasks that are in the <strong>Sheet</strong> but not in <strong>this browser</strong> and tombstones them.
+            Use this when another browser has pushed extra tasks that do not belong
+            (e.g. Edge shows more tasks than Chrome). Run from your <em>master</em> browser.
+          </p>
+          <button class="btn btn-s" onclick="Admin.removeOrphans()" id="removeOrphansBtn" style="font-size:.85rem;border-color:#6A1B9A;color:#6A1B9A;">&#128683; Remove Sheet Orphans</button>
+          <div id="removeOrphansStatus" style="margin-top:8px;font-size:.82rem;"></div>
         </div>
 
         <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e2e8f0;">
@@ -3378,6 +3389,85 @@ var Admin={
     }, 1000);
   },
 
+  // v51: find tasks in the Sheet that are absent from THIS browser and
+  // tombstone them.  Prevents a secondary browser (e.g. Edge) from
+  // re-pushing tasks the master browser never had.
+  removeOrphans: function () {
+    var el  = document.getElementById('removeOrphansStatus');
+    var btn = document.getElementById('removeOrphansBtn');
+    if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
+      if (el) el.innerHTML = '<span style="color:#c05621;">No Apps Script URL configured.</span>';
+      return;
+    }
+    if (!confirm(
+      'This will compare the Google Sheet against THIS browser.\n\n' +
+      'Any task that exists in the Sheet but NOT in this browser will be permanently deleted from the Sheet.\n\n' +
+      'Run this from your MASTER browser (Chrome) after you have already confirmed it has the correct task list.\n\nContinue?'
+    )) return;
+
+    if (btn) btn.disabled = true;
+    if (el)  el.innerHTML = 'Fetching Sheet&hellip;';
+
+    var localIds = Store.get().map(function (t) { return t.id; });
+
+    fetch(SCRIPT_URL + '?action=get&_=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok || !res.data) {
+          if (el) el.innerHTML = '<span style="color:#c05621;">Could not read Sheet: ' + (res.error || 'no data') + '</span>';
+          if (btn) btn.disabled = false;
+          return;
+        }
+        var remote  = JSON.parse(res.data).filter(function (t) { return !t._deleted; });
+        var orphans = remote.filter(function (rt) { return localIds.indexOf(rt.id) < 0; });
+
+        console.log('[Admin.removeOrphans] Sheet:', remote.length, '| Local:', localIds.length, '| Orphans:', orphans.length);
+        if (el) el.innerHTML = 'Sheet has ' + remote.length + ' tasks, this browser has ' + localIds.length + '. Found ' + orphans.length + ' orphan(s)&hellip;';
+
+        if (!orphans.length) {
+          if (el) el.innerHTML = '<span style="color:#276749;">&#10003; No orphans — Sheet already matches this browser.</span>';
+          if (btn) btn.disabled = false;
+          toast('Sheet already matches this browser.', 'success');
+          return;
+        }
+
+        // Tombstone each orphan one at a time (serialised to avoid lock contention)
+        var chain = Promise.resolve();
+        var done = 0;
+        orphans.forEach(function (t) {
+          chain = chain.then(function () {
+            var tomb = { id: t.id, _deleted: true, deletedAt: new Date().toISOString() };
+            var url  = SCRIPT_URL + '?action=upsert&task=' + encodeURIComponent(JSON.stringify(tomb));
+            return fetch(url, { cache: 'no-store' })
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                done++;
+                if (d.ok) {
+                  console.log('[Admin.removeOrphans] tombstoned', t.id, '"' + t.title + '"');
+                } else {
+                  console.warn('[Admin.removeOrphans] failed to tombstone', t.id, d.error);
+                }
+                if (el) el.innerHTML = 'Tombstoning orphans&hellip; ' + done + ' / ' + orphans.length;
+              })
+              .catch(function (e) {
+                done++;
+                console.error('[Admin.removeOrphans] network error for', t.id, e);
+              });
+          });
+        });
+
+        chain.then(function () {
+          if (btn) btn.disabled = false;
+          if (el) el.innerHTML = '<span style="color:#276749;">&#10003; ' + orphans.length + ' orphan task(s) removed from Sheet. Other browsers will drop to ' + localIds.length + ' tasks within 30 s.</span>';
+          toast(orphans.length + ' orphan(s) removed — other browsers will sync shortly.', 'success');
+        });
+      })
+      .catch(function (e) {
+        if (btn) btn.disabled = false;
+        if (el) el.innerHTML = '<span style="color:#c05621;">Network error: ' + e.message + '</span>';
+      });
+  },
+
   resetToSheetData: function() {
     var el = document.getElementById('resetStatus');
     if (!SCRIPT_URL || SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL') {
@@ -3413,9 +3503,15 @@ var Admin={
       .then(function(r){return r.json();})
       .then(function(d){
         var ver=d.scriptVersion||'unknown';
-        var isOld=(ver==='Code_v14'||!d.scriptVersion);
-        if(el)el.innerHTML=isOld
-          ?'<span style="color:#c05621;">&#9888; Connected but running old Code_v14 &mdash; new tasks will not sync. Scroll down and paste your new deployment URL in the <strong>Update Apps Script URL</strong> box below.</span>'
+        // Code_v19+ has skipView on upsert (fast lock release).
+        // Code_v18 works but upserts are slow (causes lock contention errors).
+        // Code_v14 or older will not sync tasks at all.
+        var isV14=(ver==='Code_v14'||!d.scriptVersion);
+        var isV18=(ver==='Code_v18');
+        if(el)el.innerHTML=isV14
+          ?'<span style="color:#c05621;">&#9888; Connected but running old Code_v14 &mdash; new tasks will not sync. Deploy Code_v19.</span>'
+          :isV18
+          ?'<span style="color:#E76500;">&#9888; Connected &mdash; Code_v18. Upserts may be slow causing sync errors. Deploy Code_v19 to fix this.</span>'
           :'<span style="color:#276749;">&#10003; Connected &mdash; '+ver+'. Sync is working correctly.</span>';
       })
       .catch(function(e){
